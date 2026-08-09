@@ -101,7 +101,7 @@ func resolveFocusStrategy(
 /// Exact pane/tab targeting for terminals that support it. Returns nil when the
 /// host has no pane-targeting support or the required metadata is missing, so
 /// the caller falls through to plain app activation.
-private func resolveTerminalPaneFocus(hostApp: HostApp, session: Session) -> FocusStrategy? {
+private func resolveTerminalPaneFocus(hostApp: HostApp, session: SessionData) -> FocusStrategy? {
     let terminal = session.terminal
 
     // Warp → session deep link (WARP_FOCUS_URL, Warp v0.2026.05.27+) raises
