@@ -291,6 +291,16 @@ When `is_subagent` is `true`, the session file represents a delegated subagent's
 
 Clients that can identify internal helper sessions should set `is_subagent: true` in their hook payloads. For Codex sessions, cctop decodes the structured `threads.source` value from Codex's local thread database: `SessionSource::SubAgent(...)` and `SessionSource::Internal(...)` are hidden, while `cli` and `vscode` remain user-visible even if the legacy diagnostic `thread_source` says `subagent`. `thread_spawn_edges` corroborates topology but is not the primary classifier, because review and guardian helpers may have no edge. Missing, malformed, unknown, or contradictory source evidence fails open and is counted in the session-load diagnostics.
 
+Direct Codex hook events also count as delegated when their process environment
+contains the `CLAUDE_CODE_CHILD_SESSION` key. Claude Code supplies that key,
+with or without a value, to Codex subprocesses it launches for delegated work. Those
+subprocesses can inherit Ghostty metadata from the parent Claude session, so
+terminal metadata is not evidence that the Codex session was started directly
+by the user. The marker applies only to `source: "codex"`; normal Claude Code,
+Codex Desktop, and directly launched Codex CLI sessions remain visible.
+The local maintenance and upgrade procedure for this behavior is documented in
+[local-claude-codex-delegation-patch.md](local-claude-codex-delegation-patch.md).
+
 Codex hooks do not yet expose semantic visibility or openability for ephemeral
 root workers. cctop treats an explicitly null `transcript_path` on a positively
 identified `startup` only as a short deferral signal, not as proof that a session

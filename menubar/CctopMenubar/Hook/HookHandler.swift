@@ -76,7 +76,7 @@ enum HookHandler {
                 data.workspaceFile = SessionData.findWorkspaceFile(in: input.cwd)
             }
             applySideEffects(event: event, data: &data, input: input, sessionsDir: sessionsDir, safeId: safeId)
-            if input.isSubagentSession == true { data.isSubagentSession = true }
+            if input.hasDelegatedSessionEvidence(environment: deps.environment()) { data.isSubagentSession = true }
             if data.shouldAutoHide || (event == .userPromptSubmit && input.hasCodexProjectSuggestionEvidence) { data.hidden = true }
             data.markWrittenByHook(version: Config.hookVersion, isNewSessionFile: isNewSessionFile)
 
@@ -462,6 +462,10 @@ extension HookHandler {
             data.endedAt = endedAt
             if hasTrustedClaudeDesktopBundle(data, sourceOverride: input.resolvedHarnessName) {
                 data.disconnectedAt = data.disconnectedAt ?? endedAt
+            }
+            if input.hasDelegatedSessionEvidence(environment: deps.environment()) {
+                data.isSubagentSession = true
+                data.hidden = true
             }
             data.markWrittenByHook(version: Config.hookVersion, isNewSessionFile: false)
             do {
