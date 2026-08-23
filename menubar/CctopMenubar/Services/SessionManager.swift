@@ -119,9 +119,13 @@ class SessionManager: ObservableObject {
             winners: visibleCandidates,
             records: visibleRecords
         )
-        let loadedUserSessions = groupedUserSessions.map {
+        let adjustedUserSessions = groupedUserSessions.map {
             $0.replacingDisplayData(adjustDisplayStatus($0.displayRecord.data))
         }
+        let loadedUserSessions = applyingAttentionAcknowledgements(
+            to: adjustedUserSessions,
+            inventoryComplete: inventoryComplete
+        )
         let newUserSessions = SessionDisplayPolicy.reconcilingOrder(
             in: loadedUserSessions,
             preserving: oldUserSessions,

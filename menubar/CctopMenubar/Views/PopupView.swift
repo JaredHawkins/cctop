@@ -19,6 +19,7 @@ struct PopupView: View {
     var initialTab: PopupTab = .active
     var initialCleanupCandidate: WorktreeCleanupCandidate?
     var onOpenUpdater: (() -> Void)?
+    var onAcknowledgeSession: (SessionIdentityPolicy.LogicalIdentity) -> Void = { _ in }
     var onHideSession: (SessionIdentityPolicy.LogicalIdentity) -> Void = { _ in }
     var onSelectCleanupRemovalAction: ((WorktreeCleanupCandidate) async -> WorktreeRemovalService.RemovalAction)?
     var onExecuteCleanupRemovalAction: ((WorktreeRemovalService.RemovalAction) async -> WorktreeRemovalService.RemovalResult)?

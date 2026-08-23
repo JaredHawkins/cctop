@@ -143,6 +143,13 @@ extension PopupView {
             Button { copyPath(row.session.projectPath) } label: {
                 Label("Copy Project Path", systemImage: "doc.on.doc")
             }
+            if row.session.status.needsAttention {
+                Divider()
+                Button { acknowledgeSession(row) } label: {
+                    Label("Acknowledge", systemImage: "checkmark.circle")
+                }
+                .disabled(row.userSession.identity.cctopSessionID == nil)
+            }
             Divider()
             Button { requestHideSession(row) } label: {
                 Label("Hide Session", systemImage: "eye.slash")
@@ -151,9 +158,19 @@ extension PopupView {
         }
         .help(focusActionTitle)
         .accessibilityActions {
+            if row.session.status.needsAttention {
+                Button("Acknowledge") { acknowledgeSession(row) }
+                    .disabled(row.userSession.identity.cctopSessionID == nil)
+            }
             Button("Hide Session") { requestHideSession(row) }
                 .disabled(row.userSession.identity.cctopSessionID == nil)
         }
+    }
+
+    func acknowledgeSession(_ row: PanelSessionRow) {
+        guard row.session.status.needsAttention,
+              row.userSession.identity.cctopSessionID != nil else { return }
+        onAcknowledgeSession(row.userSession.identity)
     }
 
     func moveSessionSelection(by delta: Int, in rows: [PanelSessionRow]) {

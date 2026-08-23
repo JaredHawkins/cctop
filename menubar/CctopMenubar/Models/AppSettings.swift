@@ -12,6 +12,35 @@ enum AppearanceMode: String, CaseIterable {
     }
 }
 
+enum NotchStatusPlacement: String, CaseIterable {
+    case side
+    case below
+
+    static let defaultsKey = "notchStatusPlacement"
+    static let defaultValue = NotchStatusPlacement.below
+
+    var label: String {
+        switch self {
+        case .side: "Side"
+        case .below: "Below"
+        }
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> NotchStatusPlacement {
+        guard let rawValue = defaults.string(forKey: defaultsKey),
+              let placement = NotchStatusPlacement(rawValue: rawValue) else {
+            return defaultValue
+        }
+        return placement
+    }
+}
+
+extension Notification.Name {
+    static let notchStatusPlacementDidChange = Notification.Name(
+        "com.st0012.CctopMenubar.notchStatusPlacementDidChange"
+    )
+}
+
 extension KeyboardShortcuts.Name {
     static let togglePanel = Self("togglePanel")
     // Storage key is "refocus" (the old name) for backward compatibility with existing user shortcuts.

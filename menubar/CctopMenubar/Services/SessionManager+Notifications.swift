@@ -72,6 +72,67 @@ enum SessionNotificationAction: Equatable {
 
 @MainActor
 extension SessionManager {
+    func acknowledgeSession(_ identity: SessionIdentityPolicy.LogicalIdentity) {
+        guard let cctopSessionID = identity.cctopSessionID,
+              let current = userSessions.first(where: { $0.identity == identity }),
+              current.status.needsAttention else { return }
+
+        let oldUserSessions = userSessions
+        dataSources.attentionAcknowledgements.acknowledge(
+            cctopSessionID: cctopSessionID,
+            session: current.displayRecord.data
+        )
+        let acknowledged = userSessions.map { userSession -> UserSession in
+            guard userSession.identity == identity else { return userSession }
+            var displayData = userSession.displayRecord.data
+            displayData.status = .idle
+            return userSession.replacingDisplayData(displayData)
+        }
+        let now = dataSources.now()
+        let reordered = SessionDisplayPolicy.reconcilingOrder(
+            in: acknowledged,
+            preserving: oldUserSessions,
+            now: now
+        )
+        updateSessionProjection(
+            reordered,
+            displaySignature: SessionDisplayPolicy.signature(for: reordered, now: now),
+            syncNotificationsFrom: oldUserSessions
+        )
+    }
+
+    /// Apply user acknowledgement after every other display-only status adjustment.
+    /// This keeps the hook-owned attention status intact while all cctop surfaces use
+    /// the same neutral idle presentation for an event the user has already reviewed.
+    func applyingAttentionAcknowledgements(
+        to userSessions: [UserSession],
+        inventoryComplete: Bool
+    ) -> [UserSession] {
+        var revisions: [String: SessionAttentionRevision] = [:]
+        var observedSessionIDs: Set<String> = []
+        for userSession in userSessions {
+            guard let cctopSessionID = userSession.identity.cctopSessionID else { continue }
+            observedSessionIDs.insert(cctopSessionID)
+            if let revision = SessionAttentionRevision(session: userSession.displayRecord.data) {
+                revisions[cctopSessionID] = revision
+            }
+        }
+        dataSources.attentionAcknowledgements.reconcile(
+            currentAttentionRevisions: revisions,
+            observedSessionIDs: observedSessionIDs,
+            inventoryComplete: inventoryComplete
+        )
+        let acknowledgedRevisions = dataSources.attentionAcknowledgements.acknowledgedRevisions
+        return userSessions.map { userSession in
+            guard let cctopSessionID = userSession.identity.cctopSessionID,
+                  let currentRevision = revisions[cctopSessionID],
+                  acknowledgedRevisions[cctopSessionID] == currentRevision else { return userSession }
+            var displayData = userSession.displayRecord.data
+            displayData.status = .idle
+            return userSession.replacingDisplayData(displayData)
+        }
+    }
+
     func hideSession(_ identity: SessionIdentityPolicy.LogicalIdentity) {
         guard let cctopSessionID = identity.cctopSessionID,
               let hiddenUserSession = userSessions.first(where: { $0.identity == identity }) else { return }
@@ -81,6 +142,7 @@ extension SessionManager {
             HistoryManager.canonicalRecentProjectPath($0.data.projectPath)
         })
         dataSources.manualSessionVisibility.hide(cctopSessionID: cctopSessionID)
+        dataSources.attentionAcknowledgements.remove(cctopSessionID: cctopSessionID)
         recentResumeTargets.removeAll { target in
             if target.cctopSessionId == cctopSessionID { return true }
             guard case .project = target else { return false }

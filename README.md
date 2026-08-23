@@ -30,6 +30,10 @@ project with a keystroke.
 ## Why cctop
 
 - See at a glance which coding sessions are working, idle, or waiting on you.
+- Right-click a waiting session and choose **Acknowledge**, or quickly press its
+  Stream Deck key twice, to turn that exact attention event grey without
+  closing or hiding the still-open session. A new attention event restores its
+  normal color.
 - Right-click to hide a session from cctop without stopping it or deleting its data.
   cctop asks first because you cannot show it again while its local session record exists.
 - Jump directly to the right editor window, terminal pane, desktop thread, or project.
@@ -185,7 +189,9 @@ Open **Settings**. cctop shows setup actions for detected coding clients under
   column 1 without switching away from your current profile. If you skip that
   prompt, use **Import default profile** later or place the Session and Toggle
   Panel actions manually on any supported model. To show more sessions, add
-  Session actions and set their slots to 6, 7, and so on.
+  Session actions and set their slots to 6, 7, and so on. Press a session key
+  once to focus it; press the same key again within 350 ms to acknowledge its
+  current attention event.
 - Codex CLI / Codex Desktop: click **Install Hooks**, then start a new Codex CLI
   session and choose **Trust all and continue** when Codex reviews the hooks.
   Codex Desktop shares that trust state.
@@ -207,7 +213,9 @@ Restart any running sessions to pick up newly installed hooks or plugins.
 ## Themes
 
 Four palettes inspired by developer tools, each with light and dark variants.
-Switch themes in **Settings > Appearance > Color**.
+Switch themes in **Settings > Appearance > Color**. On a notched MacBook,
+**Settings > Appearance > Notch Bar** moves the compact status tab between its
+original side placement and a centered position immediately below the notch.
 
 <table>
   <tr>

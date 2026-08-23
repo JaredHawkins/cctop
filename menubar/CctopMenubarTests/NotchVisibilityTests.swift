@@ -3,6 +3,38 @@ import XCTest
 
 final class NotchVisibilityTests: XCTestCase {
 
+    func testNotchPlacementDefaultsBelowAndFallsBackFromInvalidValue() throws {
+        let suiteName = "cctop-notch-placement-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(NotchStatusPlacement.current(defaults: defaults), .below)
+        defaults.set("side", forKey: NotchStatusPlacement.defaultsKey)
+        XCTAssertEqual(NotchStatusPlacement.current(defaults: defaults), .side)
+        defaults.set("elsewhere", forKey: NotchStatusPlacement.defaultsKey)
+        XCTAssertEqual(NotchStatusPlacement.current(defaults: defaults), .below)
+    }
+
+    func testBelowPlacementCentersPillImmediatelyUnderNotch() {
+        let frame = NotchStatusController.pillFrame(
+            screenFrame: NSRect(x: 100, y: 50, width: 1_000, height: 700),
+            notchSize: CGSize(width: 200, height: 32),
+            placement: .below
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 574, y: 698, width: 52, height: 20))
+    }
+
+    func testSidePlacementPreservesExistingLeftShoulderFrame() {
+        let frame = NotchStatusController.pillFrame(
+            screenFrame: NSRect(x: 100, y: 50, width: 1_000, height: 700),
+            notchSize: CGSize(width: 200, height: 32),
+            placement: .side
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 457, y: 730, width: 52, height: 20))
+    }
+
     // MARK: - No notch or no built-in screen → tearDown
 
     func testNoNotchTearDown() {

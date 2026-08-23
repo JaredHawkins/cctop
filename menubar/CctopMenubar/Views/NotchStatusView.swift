@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NotchStatusView: View {
     let counts: StatusCounts
+    var placement = NotchStatusPlacement.defaultValue
     var themeId: String = ""
 
     var body: some View {
@@ -15,13 +16,13 @@ struct NotchStatusView: View {
         .frame(width: 36, height: 4)
         .frame(height: 11)
         .id(themeId)
-        .padding(.leading, 5)
-        .padding(.trailing, 2)
+        .padding(.leading, placement == .side ? 5 : 8)
+        .padding(.trailing, placement == .side ? 2 : 8)
         .padding(.top, 4)
         .padding(.bottom, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.black.opacity(0.90))
-        .clipShape(NotchTabShape(radius: 6))
+        .clipShape(NotchTabShape(radius: 6, placement: placement))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(counts.accessibilityLabel)
     }
@@ -50,15 +51,43 @@ private struct StatusBar: View {
     }
 }
 
-/// Notch tab shape: flat top and right edge (meets the notch), rounded bottom-left corner only.
+/// Side tabs meet the notch on their right edge. Below tabs meet it across their flat top.
 private struct NotchTabShape: Shape {
     var radius: CGFloat
+    var placement: NotchStatusPlacement
 
     func path(in rect: CGRect) -> Path {
+        switch placement {
+        case .side: sidePath(in: rect)
+        case .below: belowPath(in: rect)
+        }
+    }
+
+    private func sidePath(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addArc(
+            tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
+            tangent2End: CGPoint(x: rect.minX, y: rect.maxY - radius),
+            radius: radius
+        )
+        path.closeSubpath()
+        return path
+    }
+
+    private func belowPath(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+        path.addArc(
+            tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
+            tangent2End: CGPoint(x: rect.maxX - radius, y: rect.maxY),
+            radius: radius
+        )
         path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
         path.addArc(
             tangent1End: CGPoint(x: rect.minX, y: rect.maxY),

@@ -63,6 +63,8 @@ struct SettingsSection: View {
                     AmberSegmentedPicker(options: AppearanceMode.allCases.map { ($0.rawValue, $0.label) }, selection: $appearanceMode)
                 }
                 .onChange(of: appearanceMode) { _ in UserDefaults.standard.synchronize() }
+                groupedDivider
+                NotchPlacementSettingsRow()
             }
 
             sectionHeader("Shortcuts")
@@ -114,9 +116,7 @@ struct SettingsSection: View {
     }
 
     private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            content()
-        }
+        VStack(spacing: 0, content: content)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.groupedRowBackground)
         .clipShape(RoundedRectangle(cornerRadius: AppChrome.groupCornerRadius, style: .continuous))

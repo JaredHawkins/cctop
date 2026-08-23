@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Manages the notch status panel lifecycle. Creates a small status indicator
-/// next to the camera notch on built-in displays. No-op on non-notch Macs.
+/// attached to the camera notch on built-in displays. No-op on non-notch Macs.
 @MainActor
 class NotchStatusController {
     private static let pillWidth: CGFloat = 52
@@ -16,15 +16,24 @@ class NotchStatusController {
     /// Provides the current theme identifier; injected so tests and previews
     /// don't have to go through the ThemeManager singleton.
     private let themeId: @MainActor () -> String
+    /// Provides the user's preferred attachment edge.
+    private let placement: @MainActor () -> NotchStatusPlacement
 
     /// Called when the notch pill is clicked.
     var onPillClicked: (() -> Void)?
 
     /// Last counts received, used when creating or updating the panel.
     private(set) var lastCounts = StatusCounts.zero
+    private(set) var lastPlacement = NotchStatusPlacement.defaultValue
 
-    init(themeId: @escaping @MainActor () -> String = { ThemeManager.shared.themeId }) {
+    init(
+        themeId: @escaping @MainActor () -> String = { ThemeManager.shared.themeId },
+        placement: @escaping @MainActor () -> NotchStatusPlacement = {
+            NotchStatusPlacement.current()
+        }
+    ) {
         self.themeId = themeId
+        self.placement = placement
     }
 
     /// The pill's current frame in screen coordinates, if visible.
@@ -37,22 +46,33 @@ class NotchStatusController {
     func showOnScreen(_ screen: NSScreen, counts: StatusCounts) {
         guard screen.hasPhysicalNotch else { return }
 
-        let notchSize = screen.notchSize
-        let xPos = screen.frame.midX - notchSize.width / 2 - Self.pillWidth + Self.notchOverlap
-        let yPos = screen.frame.maxY - Self.pillHeight
-        let frame = NSRect(x: xPos, y: yPos, width: Self.pillWidth, height: Self.pillHeight)
+        let currentPlacement = placement()
+        let frame = Self.pillFrame(
+            screenFrame: screen.frame,
+            notchSize: screen.notchSize,
+            placement: currentPlacement
+        )
 
         if let panel {
-            if counts != lastCounts {
-                hostingView?.rootView = NotchStatusView(counts: counts, themeId: themeId())
+            if counts != lastCounts || currentPlacement != lastPlacement {
+                hostingView?.rootView = NotchStatusView(
+                    counts: counts,
+                    placement: currentPlacement,
+                    themeId: themeId()
+                )
                 lastCounts = counts
+                lastPlacement = currentPlacement
             }
             panel.setFrame(frame, display: true)
             if !panel.isVisible { panel.orderFrontRegardless() }
             return
         }
 
-        let statusView = NotchStatusView(counts: counts, themeId: themeId())
+        let statusView = NotchStatusView(
+            counts: counts,
+            placement: currentPlacement,
+            themeId: themeId()
+        )
         let hosting = NSHostingView(rootView: statusView)
         hosting.autoresizingMask = [.width, .height]
 
@@ -68,13 +88,41 @@ class NotchStatusController {
         self.panel = newPanel
         self.hostingView = hosting
         lastCounts = counts
+        lastPlacement = currentPlacement
     }
 
     /// Update the status display. No-op if the panel hasn't been created yet.
     func update(counts: StatusCounts) {
         lastCounts = counts
+        let currentPlacement = placement()
+        lastPlacement = currentPlacement
         guard let hostingView else { return }
-        hostingView.rootView = NotchStatusView(counts: counts, themeId: themeId())
+        hostingView.rootView = NotchStatusView(
+            counts: counts,
+            placement: currentPlacement,
+            themeId: themeId()
+        )
+    }
+
+    nonisolated static func pillFrame(
+        screenFrame: NSRect,
+        notchSize: CGSize,
+        placement: NotchStatusPlacement
+    ) -> NSRect {
+        let origin: NSPoint
+        switch placement {
+        case .side:
+            origin = NSPoint(
+                x: screenFrame.midX - notchSize.width / 2 - pillWidth + notchOverlap,
+                y: screenFrame.maxY - pillHeight
+            )
+        case .below:
+            origin = NSPoint(
+                x: screenFrame.midX - pillWidth / 2,
+                y: screenFrame.maxY - notchSize.height - pillHeight
+            )
+        }
+        return NSRect(origin: origin, size: NSSize(width: pillWidth, height: pillHeight))
     }
 
     /// Remove the notch panel. Hide first, then release views.

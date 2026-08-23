@@ -369,3 +369,86 @@ struct ManualSessionVisibilityStore {
         }
     }
 }
+
+/// Identifies one attention event without changing the hook-owned session record.
+/// A later hook event changes `lastActivity`, so an acknowledgement never suppresses
+/// a newer request for the user's attention.
+struct SessionAttentionRevision: Codable, Equatable {
+    let status: SessionStatus
+    let lastActivity: Date
+
+    init?(session: SessionData) {
+        guard session.status.needsAttention else { return nil }
+        status = session.status
+        lastActivity = session.lastActivity
+    }
+}
+
+/// Persists which exact attention event the user has already reviewed. This is a
+/// presentation preference only: it never hides, ends, or edits the session file.
+struct SessionAttentionAcknowledgementStore {
+    static let defaultsKey = "acknowledgedSessionAttentionRevisions"
+    static let live = SessionAttentionAcknowledgementStore(defaults: .standard)
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+    }
+
+    var acknowledgedRevisions: [String: SessionAttentionRevision] {
+        guard let data = defaults.data(forKey: Self.defaultsKey),
+              let decoded = try? JSONDecoder.sessionDecoder.decode(
+                  [String: SessionAttentionRevision].self,
+                  from: data
+              ) else { return [:] }
+        return decoded.filter { CctopSessionID.isValid($0.key) }
+    }
+
+    func isAcknowledged(cctopSessionID: String, session: SessionData) -> Bool {
+        guard CctopSessionID.isValid(cctopSessionID),
+              let revision = SessionAttentionRevision(session: session) else { return false }
+        return acknowledgedRevisions[cctopSessionID] == revision
+    }
+
+    func acknowledge(cctopSessionID: String, session: SessionData) {
+        guard CctopSessionID.isValid(cctopSessionID),
+              let revision = SessionAttentionRevision(session: session) else { return }
+        var revisions = acknowledgedRevisions
+        revisions[cctopSessionID] = revision
+        save(revisions)
+    }
+
+    func remove(cctopSessionID: String) {
+        var revisions = acknowledgedRevisions
+        guard revisions.removeValue(forKey: cctopSessionID) != nil else { return }
+        save(revisions)
+    }
+
+    /// Remove stale revisions for sessions observed in this pass. When the inventory
+    /// is complete, also remove revisions whose sessions no longer exist.
+    func reconcile(
+        currentAttentionRevisions: [String: SessionAttentionRevision],
+        observedSessionIDs: Set<String>,
+        inventoryComplete: Bool
+    ) {
+        let current = acknowledgedRevisions
+        let retained = current.filter { cctopSessionID, acknowledgedRevision in
+            if let currentRevision = currentAttentionRevisions[cctopSessionID] {
+                return currentRevision == acknowledgedRevision
+            }
+            return !inventoryComplete && !observedSessionIDs.contains(cctopSessionID)
+        }
+        guard retained != current else { return }
+        save(retained)
+    }
+
+    private func save(_ revisions: [String: SessionAttentionRevision]) {
+        guard !revisions.isEmpty else {
+            defaults.removeObject(forKey: Self.defaultsKey)
+            return
+        }
+        guard let data = try? JSONEncoder.sessionEncoder.encode(revisions) else { return }
+        defaults.set(data, forKey: Self.defaultsKey)
+    }
+}

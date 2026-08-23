@@ -80,6 +80,16 @@ again while its local record exists. Persist the preference by cctop's permanent
 while continuing lifecycle classification and Cleanup protection from the full
 local session inventory.
 
+### Acknowledgement is not lifecycle
+
+Users may acknowledge an attention state they have already reviewed. This
+quietly maps that exact event to cctop's existing neutral idle presentation
+without hiding, ending, or editing the underlying session. The acknowledgement
+expires when the same session reports a newer attention event, so cctop earns
+the right to become conspicuous again. A Stream Deck session key focuses on the
+first press and acknowledges that same permanent session when pressed again
+within the double-press window. Presses on separate keys never combine.
+
 ### Show decision evidence inline
 
 When cctop asks users to decide, the evidence needed for that decision should be

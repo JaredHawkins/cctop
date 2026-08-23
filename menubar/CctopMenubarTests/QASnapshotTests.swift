@@ -132,6 +132,41 @@ final class QASnapshotTests: XCTestCase {
         )
     }
 
+    func testNotchBelowPlacementPreview() throws {
+        try renderFixedSnapshot(
+            NotchBelowPreviewScene(),
+            name: "17-notch-below",
+            size: NSSize(width: 720, height: 220),
+            colorScheme: .dark
+        )
+    }
+
+    func testAttentionAcknowledgementPreview() throws {
+        var attention = SessionData.mock(
+            id: "attention-preview",
+            cctopSessionId: "11111111-1111-4111-8111-111111111111",
+            status: .waitingPermission,
+            notificationMessage: "Review completed; session remains open"
+        )
+        attention.lifecycle = .active
+        let before = userSessions(fromDataFixtures: [attention])
+        var acknowledgedData = before[0].displayRecord.data
+        acknowledgedData.status = .idle
+        let after = [before[0].replacingDisplayData(acknowledgedData)]
+
+        try renderFixedSnapshot(
+            AttentionAcknowledgementPreviewScene(
+                before: before,
+                after: after,
+                beforePluginManager: inertPluginManager(),
+                afterPluginManager: inertPluginManager()
+            ),
+            name: "18-attention-acknowledgement",
+            size: NSSize(width: 720, height: 390),
+            colorScheme: .dark
+        )
+    }
+
     // MARK: - Polish review matrix
 
     func testPolishReviewMatrix() throws {
@@ -383,6 +418,30 @@ final class QASnapshotTests: XCTestCase {
         try captureToFile(hostingView: hostingView, path: "/tmp/cctop-qa/\(name).png")
     }
 
+    private func renderFixedSnapshot<Content: View>(
+        _ content: Content,
+        name: String,
+        size: NSSize,
+        colorScheme: ColorScheme
+    ) throws {
+        let appearance: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        let view = content
+            .frame(width: size.width, height: size.height)
+            .environment(\.colorScheme, colorScheme)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = NSAppearance(named: appearance)
+        let hostingView = NSHostingView(rootView: view)
+        window.contentView = hostingView
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        hostingView.layoutSubtreeIfNeeded()
+        try captureToFile(hostingView: hostingView, path: "/tmp/cctop-qa/\(name).png")
+    }
+
     private func scrollFirstScrollViewToBottom(in view: NSView) {
         guard
             let scrollView = firstSubview(ofType: NSScrollView.self, in: view),
@@ -416,6 +475,72 @@ final class QASnapshotTests: XCTestCase {
 
         try pngData.write(to: URL(fileURLWithPath: path))
         print("QA snapshot saved: \(path)")
+    }
+}
+
+private struct NotchBelowPreviewScene: View {
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color(red: 0.09, green: 0.53, blue: 0.91)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.black)
+                .frame(width: 208, height: 42)
+                .offset(y: -10)
+            NotchStatusView(
+                counts: StatusCounts(permission: 1, attention: 0, working: 0, idle: 1),
+                placement: .below
+            )
+            .frame(width: 52, height: 20)
+            .offset(y: 32)
+            Text("Centered immediately below the physical notch")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.84))
+                .offset(y: 76)
+        }
+    }
+}
+
+private struct AttentionAcknowledgementPreviewScene: View {
+    let before: [UserSession]
+    let after: [UserSession]
+    let beforePluginManager: PluginManager
+    let afterPluginManager: PluginManager
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 24) {
+            panel(title: "Before", detail: "Needs attention", sessions: before, pluginManager: beforePluginManager)
+            panel(
+                title: "After Acknowledge",
+                detail: "Still one active session",
+                sessions: after,
+                pluginManager: afterPluginManager
+            )
+        }
+        .padding(24)
+        .background(Color(red: 0.07, green: 0.075, blue: 0.09))
+    }
+
+    private func panel(
+        title: String,
+        detail: String,
+        sessions: [UserSession],
+        pluginManager: PluginManager
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.white)
+            Text(detail)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.white.opacity(0.62))
+            PopupView(
+                userSessions: sessions,
+                updater: DisabledUpdater(),
+                pluginManager: pluginManager
+            )
+            .frame(width: 320)
+            .panelSnapshotChrome()
+        }
     }
 }
 

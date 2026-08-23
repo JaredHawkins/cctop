@@ -340,6 +340,7 @@ struct PanelContentView: View {
             navigate: navigate,
             overlayController: overlayController,
             onOpenUpdater: onOpenUpdater,
+            onAcknowledgeSession: { sessionManager.acknowledgeSession($0) },
             onHideSession: { sessionManager.hideSession($0) },
             onSelectCleanupRemovalAction: onSelectCleanupRemovalAction,
             onExecuteCleanupRemovalAction: onExecuteCleanupRemovalAction,

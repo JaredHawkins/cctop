@@ -318,7 +318,8 @@ when you glance at it from peripheral vision.
 | **Row 3 — waiting**       | 10.5 px `textSecondary` note: `notificationMessage ?? contextLine ?? "Waiting for input"`. Permission notes are 10.5 px italic `statusAttention`. |
 | Selected / hover          | `cardSelectionStyle` uses a theme-ink 7–7.5% fill, radius 10, and an 8 px horizontal inset. It has no stroke, divider, or left accent bar. |
 | Source badge visibility   | Shown only when `Set(sessions.map(\.agentBadge)).count > 1` (keyed on `agentBadge`, not `sourceLabel`, so CC + Claude Desktop counts as multiple sources) |
-| Hide interaction          | A native context-menu item and named accessibility action open the same destructive confirmation. Left-click remains jump-to-session. |
+| Acknowledge interaction   | Attention rows expose a native context-menu item and named accessibility action. Acknowledgement maps only the current event to the existing neutral idle presentation; it does not end or hide the session. |
+| Hide interaction          | A separate native context-menu item and named accessibility action open the same destructive confirmation. Left-click remains jump-to-session. |
 
 #### Source badge (`SourceBadgeView.swift`) — six variants
 
@@ -388,6 +389,11 @@ Deck's action picker. The bundled Claude Code,
 Codex, opencode, and pi integrations do not expose logo fields in their current
 direct hook/extension formats; do not invent unsupported manifest metadata.
 
+A Stream Deck Session key focuses its exact rendered permanent session ID on a
+single press. A second press on that same physical key and session ID within
+350 ms sends Acknowledge for the same target. The first focus still occurs, and
+presses on different key contexts never combine into a double press.
+
 The menubar status item is 36×18 with a centered 36×6 live hairline. It
 resolves semantic colors against the status button's effective light/dark
 appearance. It contains no separate glyph.
@@ -399,10 +405,10 @@ Always black, regardless of theme — it's OS chrome that meets the camera notch
 | Property    | Value                                                                 |
 |-------------|-----------------------------------------------------------------------|
 | Background  | `Color.black` @ 90% opacity                                           |
-| Shape       | `NotchTabShape` — flat top + right, only bottom-left rounded (radius 6) |
+| Shape       | `NotchTabShape` — Side is flat top + right with only bottom-left rounded; Below is flat top with both bottom corners rounded (radius 6) |
 | Brand mark  | One 36×4 capsule; the old 2×2 grid is not part of the refined system   |
 | Status bar  | Live segments in working → attention → permission → idle order; monochrome when there are no sessions |
-| Padding     | 5 / 2 / 4 / 5 (l / r / t / b)                                         |
+| Padding     | Side: 5 / 2 / 4 / 5; Below: 8 / 8 / 4 / 5 (l / r / t / b)             |
 
 ### Segmented picker (`AmberSegmentedPicker`)
 
@@ -738,7 +744,7 @@ width — but it adapts to **display configuration**:
 
 | Configuration                         | Behavior                                                                 |
 |---------------------------------------|--------------------------------------------------------------------------|
-| Built-in display with camera notch    | Notch pill shows next to the notch; main panel anchors to whichever (pill or menubar icon) is visible |
+| Built-in display with camera notch    | Notch pill attaches below the notch by default; Settings > Appearance > Notch Bar can restore the original Side placement. The main panel anchors to whichever (pill or menubar icon) is visible. |
 | Non-notch built-in / external display | No notch pill; 36×6 hairline menubar item is always visible              |
 | Clamshell / display change            | `NSApplication.didChangeScreenParametersNotification` re-evaluates       |
 | Dragged off-screen                    | Panel position clamps to screen bounds on next show                      |
@@ -751,8 +757,9 @@ Detection uses `NSScreen.builtin?.hasPhysicalNotch` (via
 
 ### Notch pill
 
-The notch's outer tab remains 20 px high. Its centered hairline is **36×4 px**
-and its segments scale proportionally with status counts via
+The notch's outer tab remains 52×20 px. Below placement centers it immediately
+under the physical notch; Side preserves the original left-shoulder overlap.
+Its hairline is **36×4 px** and its segments scale proportionally with status counts via
 `StatusCounts.barSegments(forWidth:)`. Single-status sessions render one
 segment. Mixed sessions get a minimum visible slice for each non-zero
 category so a single attention-needing session in twenty working ones is

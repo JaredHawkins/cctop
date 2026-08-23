@@ -11,6 +11,17 @@ extension XCTestCase {
         return ManualSessionVisibilityStore(defaults: defaults)
     }
 
+    func isolatedAttentionAcknowledgements(
+        prefix: String
+    ) -> SessionAttentionAcknowledgementStore {
+        let suiteName = "\(prefix)-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Could not create isolated user defaults")
+        }
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        return SessionAttentionAcknowledgementStore(defaults: defaults)
+    }
+
     func isolatedSessionDataSources(
         prefix: String
     ) throws -> SessionDataSources {
@@ -57,6 +68,9 @@ extension XCTestCase {
                 removeDelivered: { _ in }
             ),
             manualSessionVisibility: manualSessionVisibility,
+            attentionAcknowledgements: isolatedAttentionAcknowledgements(
+                prefix: "cctop-attention-ack"
+            ),
             now: Date.init
         )
     }
@@ -280,6 +294,7 @@ extension XCTestCase {
         desktopAppConnection: DesktopAppConnectionLookup? = nil,
         processAlive: ((SessionData) -> Bool)? = nil,
         manualSessionVisibility: ManualSessionVisibilityStore? = nil,
+        attentionAcknowledgements: SessionAttentionAcknowledgementStore? = nil,
         now: (() -> Date)? = nil
     ) -> SessionManager {
         let visibility = manualSessionVisibility
@@ -299,6 +314,9 @@ extension XCTestCase {
         }
         if let processAlive {
             sources.processAlive = processAlive
+        }
+        if let attentionAcknowledgements {
+            sources.attentionAcknowledgements = attentionAcknowledgements
         }
         if let now {
             sources.now = now

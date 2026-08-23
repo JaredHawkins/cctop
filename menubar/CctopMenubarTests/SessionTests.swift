@@ -2618,6 +2618,113 @@ final class SessionTests: XCTestCase {
     }
 }
 
+@MainActor
+final class SessionAttentionAcknowledgementTests: XCTestCase {
+    private let firstID = "11111111-1111-4111-8111-111111111111"
+    private let secondID = "22222222-2222-4222-8222-222222222222"
+
+    func testAcknowledgementMatchesOnlyExactAttentionRevision() {
+        let store = isolatedAttentionAcknowledgements(prefix: "cctop-attention-revision")
+        var attention = SessionData.mock(
+            id: "attention",
+            cctopSessionId: firstID,
+            status: .waitingPermission
+        )
+        attention.lastActivity = Date(timeIntervalSince1970: 1_000)
+
+        store.acknowledge(cctopSessionID: firstID, session: attention)
+
+        XCTAssertTrue(store.isAcknowledged(cctopSessionID: firstID, session: attention))
+        var newerEvent = attention
+        newerEvent.lastActivity = Date(timeIntervalSince1970: 1_001)
+        XCTAssertFalse(store.isAcknowledged(cctopSessionID: firstID, session: newerEvent))
+        var differentAttentionState = attention
+        differentAttentionState.status = .waitingInput
+        XCTAssertFalse(store.isAcknowledged(cctopSessionID: firstID, session: differentAttentionState))
+        var working = attention
+        working.status = .working
+        XCTAssertFalse(store.isAcknowledged(cctopSessionID: firstID, session: working))
+    }
+
+    func testReconcileRetainsUnobservedPartialInventoryAndPrunesStaleEvidence() {
+        let store = isolatedAttentionAcknowledgements(prefix: "cctop-attention-reconcile")
+        var first = SessionData.mock(id: "first", cctopSessionId: firstID, status: .waitingInput)
+        first.lastActivity = Date(timeIntervalSince1970: 1_000)
+        var second = SessionData.mock(id: "second", cctopSessionId: secondID, status: .waitingInput)
+        second.lastActivity = Date(timeIntervalSince1970: 2_000)
+        store.acknowledge(cctopSessionID: firstID, session: first)
+        store.acknowledge(cctopSessionID: secondID, session: second)
+        let firstRevision = SessionAttentionRevision(session: first)!
+
+        store.reconcile(
+            currentAttentionRevisions: [firstID: firstRevision],
+            observedSessionIDs: [firstID],
+            inventoryComplete: false
+        )
+        XCTAssertEqual(Set(store.acknowledgedRevisions.keys), [firstID, secondID])
+
+        store.reconcile(
+            currentAttentionRevisions: [firstID: firstRevision],
+            observedSessionIDs: [firstID, secondID],
+            inventoryComplete: false
+        )
+        XCTAssertEqual(Set(store.acknowledgedRevisions.keys), [firstID])
+
+        store.reconcile(
+            currentAttentionRevisions: [:],
+            observedSessionIDs: [],
+            inventoryComplete: true
+        )
+        XCTAssertTrue(store.acknowledgedRevisions.isEmpty)
+    }
+
+    func testAcknowledgementTurnsCurrentEventIdleWithoutEndingAndNewEventRestoresAttention() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cctop-attention-manager-\(UUID().uuidString)", isDirectory: true)
+        let sessionsDir = root.appendingPathComponent("sessions", isDirectory: true)
+        let historyDir = root.appendingPathComponent("history", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsDir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+
+        let store = isolatedAttentionAcknowledgements(prefix: "cctop-attention-manager-store")
+        let now = Date(timeIntervalSince1970: 10_000)
+        var attention = SessionData.mock(
+            id: "attention",
+            cctopSessionId: firstID,
+            status: .waitingInput,
+            pid: UInt32(ProcessInfo.processInfo.processIdentifier),
+            source: SessionData.opencodeSource
+        )
+        attention.lastActivity = now
+        let sessionPath = sessionsDir.appendingPathComponent("attention.json").path
+        try attention.writeToFile(path: sessionPath)
+        let manager = makeManager(
+            sessionsDir: sessionsDir.path,
+            historyDir: historyDir.path,
+            processAlive: { _ in true },
+            attentionAcknowledgements: store,
+            now: { now }
+        )
+        let identity = try XCTUnwrap(manager.userSessions.first?.identity)
+
+        manager.acknowledgeSession(identity)
+
+        let acknowledged = try XCTUnwrap(manager.userSessions.first)
+        XCTAssertEqual(acknowledged.status, .idle)
+        XCTAssertEqual(acknowledged.displayRecord.data.lifecycle, .active)
+        XCTAssertEqual(acknowledged.records.first?.data.status, .waitingInput)
+        XCTAssertEqual(StatusCounts(userSessions: manager.userSessions, now: now).idle, 1)
+        XCTAssertTrue(store.isAcknowledged(cctopSessionID: firstID, session: attention))
+
+        attention.lastActivity = now.addingTimeInterval(1)
+        try attention.writeToFile(path: sessionPath)
+        manager.loadSessions()
+
+        XCTAssertEqual(manager.userSessions.first?.status, .waitingInput)
+        XCTAssertFalse(store.isAcknowledged(cctopSessionID: firstID, session: attention))
+    }
+}
+
 final class CctopSessionIdentityStoreTests: XCTestCase {
     private var rootURL: URL!
     private var sessionsURL: URL!
