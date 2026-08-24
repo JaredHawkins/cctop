@@ -391,7 +391,7 @@ direct hook/extension formats; do not invent unsupported manifest metadata.
 
 A Stream Deck Session key focuses its exact rendered permanent session ID on a
 single press. A second press on that same physical key and session ID within
-350 ms sends Acknowledge for the same target. The first focus still occurs, and
+500 ms sends Acknowledge for the same target. The first focus still occurs, and
 presses on different key contexts never combine into a double press.
 
 The standard menubar status item is 36×18 with a centered 36×6 live hairline.

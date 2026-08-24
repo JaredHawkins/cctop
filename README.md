@@ -190,7 +190,7 @@ Open **Settings**. cctop shows setup actions for detected coding clients under
   prompt, use **Import default profile** later or place the Session and Toggle
   Panel actions manually on any supported model. To show more sessions, add
   Session actions and set their slots to 6, 7, and so on. Press a session key
-  once to focus it; press the same key again within 350 ms to acknowledge its
+  once to focus it; press the same key again within 500 ms to acknowledge its
   current attention event.
 - Codex CLI / Codex Desktop: click **Install Hooks**, then start a new Codex CLI
   session and choose **Trust all and continue** when Codex reviews the hooks.

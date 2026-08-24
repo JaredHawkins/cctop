@@ -9,7 +9,7 @@ This patch is stacked on the local Claude-launched Codex subagent filter in
 2. Right-clicking an attention session exposes Acknowledge. The current event
    becomes neutral grey/idle on every cctop surface while the session remains
    active and focusable. Pressing the same Stream Deck session key twice within
-   350 ms sends the same action. A later attention event restores its normal
+   500 ms sends the same action. A later attention event restores its normal
    color.
 
 ## Stable behavior contracts
@@ -35,7 +35,7 @@ This patch is stacked on the local Claude-launched Codex subagent filter in
   inventories prune missing sessions, and any observed non-attention or changed
   revision is pruned immediately.
 - A Stream Deck key's first press retains the existing immediate focus action.
-  A second press within 350 ms acknowledges only when the same key context still
+  A second press within 500 ms acknowledges only when the same key context still
   owns the same rendered permanent session ID. Different keys never combine,
   even when they display the same grouped session ID.
 

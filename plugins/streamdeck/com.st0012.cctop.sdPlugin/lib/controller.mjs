@@ -13,7 +13,7 @@ import {
 
 export const SESSION_ACTION = "com.st0012.cctop.session";
 export const TOGGLE_ACTION = "com.st0012.cctop.toggle-panel";
-export const SESSION_DOUBLE_PRESS_WINDOW_MS = 350;
+export const SESSION_DOUBLE_PRESS_WINDOW_MS = 500;
 const CCTOP_APP_BUNDLE_ID = "com.st0012.CctopMenubar";
 
 export function parseArgs(argv) {
