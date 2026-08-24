@@ -64,7 +64,7 @@ struct SettingsSection: View {
                 }
                 .onChange(of: appearanceMode) { _ in UserDefaults.standard.synchronize() }
                 groupedDivider
-                NotchPlacementSettingsRow()
+                StatusIndicatorPlacementSettingsRow()
             }
 
             sectionHeader("Shortcuts")

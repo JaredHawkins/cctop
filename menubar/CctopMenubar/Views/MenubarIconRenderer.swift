@@ -4,23 +4,39 @@ import AppKit
 /// With no sessions it becomes a monochrome template bar.
 @MainActor
 enum MenubarIconRenderer {
-    private static let size = NSSize(width: 36, height: 18)
-    private static let barRect = NSRect(x: 0, y: 6, width: 36, height: 6)
+    enum Layout {
+        case standard
+        case compact
 
-    static func render(counts: StatusCounts) -> NSImage {
-        let image = NSImage(size: size, flipped: false) { _ in
+        var size: NSSize {
+            switch self {
+            case .standard: NSSize(width: 36, height: 18)
+            case .compact: NSSize(width: 18, height: 18)
+            }
+        }
+
+        var barRect: NSRect {
+            switch self {
+            case .standard: NSRect(x: 0, y: 6, width: 36, height: 6)
+            case .compact: NSRect(x: 2, y: 6, width: 14, height: 6)
+            }
+        }
+    }
+
+    static func render(counts: StatusCounts, layout: Layout = .standard) -> NSImage {
+        let image = NSImage(size: layout.size, flipped: false) { _ in
             if counts.total == 0 {
                 NSColor.labelColor.setFill()
                 NSBezierPath(
-                    roundedRect: barRect,
-                    xRadius: barRect.height / 2,
-                    yRadius: barRect.height / 2
+                    roundedRect: layout.barRect,
+                    xRadius: layout.barRect.height / 2,
+                    yRadius: layout.barRect.height / 2
                 ).fill()
             } else {
                 // AppKit makes the status item's effective appearance current here,
                 // so one live image follows menu-bar light/dark changes immediately.
                 drawSegmentedBar(
-                    in: barRect,
+                    in: layout.barRect,
                     counts: counts,
                     appearance: NSAppearance.current
                 )

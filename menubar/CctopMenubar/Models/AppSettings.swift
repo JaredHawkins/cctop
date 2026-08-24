@@ -12,23 +12,40 @@ enum AppearanceMode: String, CaseIterable {
     }
 }
 
-enum NotchStatusPlacement: String, CaseIterable {
+enum NotchStatusPlacement: String {
     case side
     case below
 
-    static let defaultsKey = "notchStatusPlacement"
     static let defaultValue = NotchStatusPlacement.below
+}
+
+enum StatusIndicatorPlacement: String, CaseIterable {
+    case side
+    case below
+    case menuBar = "menu_bar"
+
+    static let defaultsKey = "notchStatusPlacement"
+    static let defaultValue = StatusIndicatorPlacement.below
 
     var label: String {
         switch self {
         case .side: "Side"
         case .below: "Below"
+        case .menuBar: "Menu Bar"
         }
     }
 
-    static func current(defaults: UserDefaults = .standard) -> NotchStatusPlacement {
+    var notchPlacement: NotchStatusPlacement? {
+        switch self {
+        case .side: .side
+        case .below: .below
+        case .menuBar: nil
+        }
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> StatusIndicatorPlacement {
         guard let rawValue = defaults.string(forKey: defaultsKey),
-              let placement = NotchStatusPlacement(rawValue: rawValue) else {
+              let placement = StatusIndicatorPlacement(rawValue: rawValue) else {
             return defaultValue
         }
         return placement
@@ -36,7 +53,7 @@ enum NotchStatusPlacement: String, CaseIterable {
 }
 
 extension Notification.Name {
-    static let notchStatusPlacementDidChange = Notification.Name(
+    static let statusIndicatorPlacementDidChange = Notification.Name(
         "com.st0012.CctopMenubar.notchStatusPlacementDidChange"
     )
 }

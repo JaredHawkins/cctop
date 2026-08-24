@@ -90,6 +90,16 @@ the right to become conspicuous again. A Stream Deck session key focuses on the
 first press and acknowledges that same permanent session when pressed again
 within the double-press window. Presses on separate keys never combine.
 
+### Temporary drop is not hiding
+
+Users may drop a session they no longer need to see right now. Drop removes the
+exact current session revision from every cctop surface without stopping,
+archiving, ending, or editing the underlying session. It survives a cctop
+restart so the session does not immediately return, but the next genuine hook
+event advances session activity and restores it automatically. Keep this action
+distinct from durable **Hide Session**, and do not require destructive-action
+confirmation for it.
+
 ### Show decision evidence inline
 
 When cctop asks users to decide, the evidence needed for that decision should be

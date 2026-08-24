@@ -40,20 +40,20 @@ struct StatusDotBadge: View {
 
 struct InstalledBadge: View { var body: some View { StatusDotBadge(text: "Installed") } }
 
-struct NotchPlacementSettingsRow: View {
-    @AppStorage(NotchStatusPlacement.defaultsKey) private var placement =
-        NotchStatusPlacement.defaultValue.rawValue
+struct StatusIndicatorPlacementSettingsRow: View {
+    @AppStorage(StatusIndicatorPlacement.defaultsKey) private var placement =
+        StatusIndicatorPlacement.defaultValue.rawValue
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("Notch Bar")
+            Text("Indicator")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.textPrimary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
             Spacer(minLength: 8)
             AmberSegmentedPicker(
-                options: NotchStatusPlacement.allCases.map { ($0.rawValue, $0.label) },
+                options: StatusIndicatorPlacement.allCases.map { ($0.rawValue, $0.label) },
                 selection: $placement
             )
         }
@@ -62,7 +62,7 @@ struct NotchPlacementSettingsRow: View {
         .frame(minHeight: 25)
         .onChange(of: placement) { _ in
             UserDefaults.standard.synchronize()
-            NotificationCenter.default.post(name: .notchStatusPlacementDidChange, object: nil)
+            NotificationCenter.default.post(name: .statusIndicatorPlacementDidChange, object: nil)
         }
     }
 }

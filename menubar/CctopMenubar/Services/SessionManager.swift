@@ -119,7 +119,11 @@ class SessionManager: ObservableObject {
             winners: visibleCandidates,
             records: visibleRecords
         )
-        let adjustedUserSessions = groupedUserSessions.map {
+        let undroppedUserSessions = applyingTemporaryDrops(
+            to: groupedUserSessions,
+            inventoryComplete: inventoryComplete
+        )
+        let adjustedUserSessions = undroppedUserSessions.map {
             $0.replacingDisplayData(adjustDisplayStatus($0.displayRecord.data))
         }
         let loadedUserSessions = applyingAttentionAcknowledgements(

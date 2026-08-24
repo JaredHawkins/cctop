@@ -29,7 +29,7 @@ class NotchStatusController {
     init(
         themeId: @escaping @MainActor () -> String = { ThemeManager.shared.themeId },
         placement: @escaping @MainActor () -> NotchStatusPlacement = {
-            NotchStatusPlacement.current()
+            StatusIndicatorPlacement.current().notchPlacement ?? .defaultValue
         }
     ) {
         self.themeId = themeId

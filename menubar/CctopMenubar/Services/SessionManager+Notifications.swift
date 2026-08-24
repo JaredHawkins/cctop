@@ -133,6 +133,47 @@ extension SessionManager {
         }
     }
 
+    /// Remove exact, unchanged activity revisions from every user-facing
+    /// projection. A later hook event advances `lastActivity`, causing the
+    /// store to discard the drop and the session to publish again.
+    func applyingTemporaryDrops(
+        to userSessions: [UserSession],
+        inventoryComplete: Bool
+    ) -> [UserSession] {
+        var revisions: [String: SessionActivityRevision] = [:]
+        var observedSessionIDs: Set<String> = []
+        for userSession in userSessions {
+            guard let cctopSessionID = userSession.identity.cctopSessionID else { continue }
+            observedSessionIDs.insert(cctopSessionID)
+            revisions[cctopSessionID] = SessionActivityRevision(userSession: userSession)
+        }
+        dataSources.temporaryDrops.reconcile(
+            currentRevisions: revisions,
+            observedSessionIDs: observedSessionIDs,
+            inventoryComplete: inventoryComplete
+        )
+        let droppedRevisions = dataSources.temporaryDrops.droppedRevisions
+        return userSessions.filter { userSession in
+            guard let cctopSessionID = userSession.identity.cctopSessionID,
+                  let droppedRevision = droppedRevisions[cctopSessionID],
+                  let currentRevision = revisions[cctopSessionID] else { return true }
+            return droppedRevision != currentRevision
+        }
+    }
+
+    func dropSession(_ identity: SessionIdentityPolicy.LogicalIdentity) {
+        guard let cctopSessionID = identity.cctopSessionID,
+              let droppedUserSession = userSessions.first(where: { $0.identity == identity }) else { return }
+
+        dataSources.temporaryDrops.drop(
+            cctopSessionID: cctopSessionID,
+            userSession: droppedUserSession
+        )
+        dataSources.attentionAcknowledgements.remove(cctopSessionID: cctopSessionID)
+        removeNotification(cctopSessionID: cctopSessionID, matching: droppedUserSession.records)
+        updateSessionProjection(userSessions.filter { $0.identity != identity })
+    }
+
     func hideSession(_ identity: SessionIdentityPolicy.LogicalIdentity) {
         guard let cctopSessionID = identity.cctopSessionID,
               let hiddenUserSession = userSessions.first(where: { $0.identity == identity }) else { return }
@@ -143,6 +184,7 @@ extension SessionManager {
         })
         dataSources.manualSessionVisibility.hide(cctopSessionID: cctopSessionID)
         dataSources.attentionAcknowledgements.remove(cctopSessionID: cctopSessionID)
+        dataSources.temporaryDrops.remove(cctopSessionID: cctopSessionID)
         recentResumeTargets.removeAll { target in
             if target.cctopSessionId == cctopSessionID { return true }
             guard case .project = target else { return false }

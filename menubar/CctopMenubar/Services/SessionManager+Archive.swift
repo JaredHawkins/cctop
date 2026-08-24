@@ -17,6 +17,7 @@ struct SessionDataSources {
     var notificationClient: SessionNotificationClient = .live
     var manualSessionVisibility: ManualSessionVisibilityStore = .live
     var attentionAcknowledgements: SessionAttentionAcknowledgementStore = .live
+    var temporaryDrops: SessionTemporaryDropStore = .live
     var now: () -> Date
 
     /// A function rather than a stored constant so `Config.sessionsDir()` is resolved

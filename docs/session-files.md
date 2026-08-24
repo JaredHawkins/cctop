@@ -281,6 +281,22 @@ records remain available to Cleanup without entering Recent Projects. Unreadable
 pre-PID files survive while stored manual-hide evidence prevents proving them
 unrelated.
 
+### Temporary dropping
+
+The app's **Drop Until Next Activity** action is a reversible presentation
+preference, separate from manual hiding and from the hook-owned `hidden` field.
+cctop stores the permanent `cctop_session_id` with the latest `last_activity`
+represented by the full grouped `UserSession`. It does not rewrite the source
+JSON, stop the process, archive the conversation, or change lifecycle.
+
+An exact matching revision is omitted from the panel, status counts, navigation,
+notifications, notch or menubar indicator, and Stream Deck display state. The
+drop survives an app restart. Any grouped record with a newer `last_activity`
+changes the activity revision, prunes the stored drop, and republishes the
+session. Partial inventories retain unobserved drop evidence; a complete
+inventory prunes missing sessions. **Hide Session** also clears any temporary
+drop for the same permanent ID so only the durable visibility decision remains.
+
 ### `is_subagent`
 
 Type: `boolean`

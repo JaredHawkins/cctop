@@ -23,6 +23,15 @@ final class MenubarIconRendererTests: XCTestCase {
         XCTAssertFalse(image.isTemplate, "Active-session icon should not be template")
     }
 
+    func testCompactIconUsesSquareMenuBarFootprint() {
+        let image = MenubarIconRenderer.render(
+            counts: StatusCounts(permission: 0, attention: 1, working: 1, idle: 0),
+            layout: .compact
+        )
+        XCTAssertEqual(image.size, NSSize(width: 18, height: 18))
+        XCTAssertFalse(image.isTemplate)
+    }
+
     // MARK: - Non-template when sessions active
 
     func testPermissionSession_notTemplate() {

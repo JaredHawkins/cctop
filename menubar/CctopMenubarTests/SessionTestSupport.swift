@@ -22,6 +22,15 @@ extension XCTestCase {
         return SessionAttentionAcknowledgementStore(defaults: defaults)
     }
 
+    func isolatedTemporaryDrops(prefix: String) -> SessionTemporaryDropStore {
+        let suiteName = "\(prefix)-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Could not create isolated user defaults")
+        }
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        return SessionTemporaryDropStore(defaults: defaults)
+    }
+
     func isolatedSessionDataSources(
         prefix: String
     ) throws -> SessionDataSources {
@@ -71,6 +80,7 @@ extension XCTestCase {
             attentionAcknowledgements: isolatedAttentionAcknowledgements(
                 prefix: "cctop-attention-ack"
             ),
+            temporaryDrops: isolatedTemporaryDrops(prefix: "cctop-temporary-drop"),
             now: Date.init
         )
     }
@@ -295,6 +305,7 @@ extension XCTestCase {
         processAlive: ((SessionData) -> Bool)? = nil,
         manualSessionVisibility: ManualSessionVisibilityStore? = nil,
         attentionAcknowledgements: SessionAttentionAcknowledgementStore? = nil,
+        temporaryDrops: SessionTemporaryDropStore? = nil,
         now: (() -> Date)? = nil
     ) -> SessionManager {
         let visibility = manualSessionVisibility
@@ -317,6 +328,9 @@ extension XCTestCase {
         }
         if let attentionAcknowledgements {
             sources.attentionAcknowledgements = attentionAcknowledgements
+        }
+        if let temporaryDrops {
+            sources.temporaryDrops = temporaryDrops
         }
         if let now {
             sources.now = now

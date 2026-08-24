@@ -19,6 +19,11 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(cases, [.system, .light, .dark])
     }
 
+    func testStatusIndicatorPlacementOffersSideBelowAndMenuBar() {
+        XCTAssertEqual(StatusIndicatorPlacement.allCases, [.side, .below, .menuBar])
+        XCTAssertEqual(StatusIndicatorPlacement.allCases.map(\.label), ["Side", "Below", "Menu Bar"])
+    }
+
     func testFileAccessSettingsURLsOpenPrivacySystemSettings() {
         XCTAssertEqual(
             FileAccessSettings.filesAndFoldersURL.absoluteString,

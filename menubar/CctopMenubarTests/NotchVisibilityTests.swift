@@ -3,16 +3,24 @@ import XCTest
 
 final class NotchVisibilityTests: XCTestCase {
 
-    func testNotchPlacementDefaultsBelowAndFallsBackFromInvalidValue() throws {
+    func testIndicatorPlacementDefaultsBelowAndFallsBackFromInvalidValue() throws {
         let suiteName = "cctop-notch-placement-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(NotchStatusPlacement.current(defaults: defaults), .below)
-        defaults.set("side", forKey: NotchStatusPlacement.defaultsKey)
-        XCTAssertEqual(NotchStatusPlacement.current(defaults: defaults), .side)
-        defaults.set("elsewhere", forKey: NotchStatusPlacement.defaultsKey)
-        XCTAssertEqual(NotchStatusPlacement.current(defaults: defaults), .below)
+        XCTAssertEqual(StatusIndicatorPlacement.current(defaults: defaults), .below)
+        defaults.set("side", forKey: StatusIndicatorPlacement.defaultsKey)
+        XCTAssertEqual(StatusIndicatorPlacement.current(defaults: defaults), .side)
+        defaults.set("menu_bar", forKey: StatusIndicatorPlacement.defaultsKey)
+        XCTAssertEqual(StatusIndicatorPlacement.current(defaults: defaults), .menuBar)
+        defaults.set("elsewhere", forKey: StatusIndicatorPlacement.defaultsKey)
+        XCTAssertEqual(StatusIndicatorPlacement.current(defaults: defaults), .below)
+    }
+
+    func testIndicatorPlacementMapsOnlyNotchChoicesToPillGeometry() {
+        XCTAssertEqual(StatusIndicatorPlacement.side.notchPlacement, .side)
+        XCTAssertEqual(StatusIndicatorPlacement.below.notchPlacement, .below)
+        XCTAssertNil(StatusIndicatorPlacement.menuBar.notchPlacement)
     }
 
     func testBelowPlacementCentersPillImmediatelyUnderNotch() {

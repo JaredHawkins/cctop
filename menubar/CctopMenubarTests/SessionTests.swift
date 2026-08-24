@@ -2725,6 +2725,78 @@ final class SessionAttentionAcknowledgementTests: XCTestCase {
     }
 }
 
+@MainActor
+final class SessionTemporaryDropTests: XCTestCase {
+    private let sessionID = "33333333-3333-4333-8333-333333333333"
+
+    func testDropSurvivesReloadAndNewActivityRestoresSession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cctop-temporary-drop-manager-\(UUID().uuidString)", isDirectory: true)
+        let sessionsDir = root.appendingPathComponent("sessions", isDirectory: true)
+        let historyDir = root.appendingPathComponent("history", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsDir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+
+        let store = isolatedTemporaryDrops(prefix: "cctop-temporary-drop-manager-store")
+        let now = Date(timeIntervalSince1970: 20_000)
+        var session = SessionData.mock(
+            id: "drop-me",
+            cctopSessionId: sessionID,
+            status: .waitingInput,
+            pid: UInt32(ProcessInfo.processInfo.processIdentifier),
+            source: SessionData.opencodeSource
+        )
+        session.lastActivity = now
+        let sessionPath = sessionsDir.appendingPathComponent("drop-me.json").path
+        try session.writeToFile(path: sessionPath)
+        let manager = makeManager(
+            sessionsDir: sessionsDir.path,
+            historyDir: historyDir.path,
+            processAlive: { _ in true },
+            temporaryDrops: store,
+            now: { now }
+        )
+        let identity = try XCTUnwrap(manager.userSessions.first?.identity)
+
+        manager.dropSession(identity)
+
+        XCTAssertTrue(manager.userSessions.isEmpty)
+        XCTAssertEqual(store.droppedRevisions[sessionID]?.lastActivity, now)
+        XCTAssertEqual(try SessionData.fromFile(path: sessionPath).lastActivity, now)
+
+        let reloaded = makeManager(
+            sessionsDir: sessionsDir.path,
+            historyDir: historyDir.path,
+            processAlive: { _ in true },
+            temporaryDrops: store,
+            now: { now }
+        )
+        XCTAssertTrue(reloaded.userSessions.isEmpty, "Drop should survive a cctop restart")
+
+        session.lastActivity = now.addingTimeInterval(1)
+        try session.writeToFile(path: sessionPath)
+        reloaded.loadSessions()
+
+        XCTAssertEqual(reloaded.userSessions.count, 1)
+        XCTAssertEqual(reloaded.userSessions.first?.identity.cctopSessionID, sessionID)
+        XCTAssertTrue(store.droppedRevisions.isEmpty)
+    }
+
+    func testDropReconcileRetainsPartialMissingInventoryAndPrunesCompleteInventory() {
+        let store = isolatedTemporaryDrops(prefix: "cctop-temporary-drop-reconcile")
+        var session = SessionData.mock(id: "drop", cctopSessionId: sessionID)
+        session.lastActivity = Date(timeIntervalSince1970: 30_000)
+        let userSession = userSessions(fromDataFixtures: [session])[0]
+        store.drop(cctopSessionID: sessionID, userSession: userSession)
+
+        store.reconcile(currentRevisions: [:], observedSessionIDs: [], inventoryComplete: false)
+        XCTAssertNotNil(store.droppedRevisions[sessionID])
+
+        store.reconcile(currentRevisions: [:], observedSessionIDs: [], inventoryComplete: true)
+        XCTAssertTrue(store.droppedRevisions.isEmpty)
+    }
+}
+
 final class CctopSessionIdentityStoreTests: XCTestCase {
     private var rootURL: URL!
     private var sessionsURL: URL!

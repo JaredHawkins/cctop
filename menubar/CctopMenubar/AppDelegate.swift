@@ -230,9 +230,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             self?.handleScreenChange()
         }
         nc.addObserver(
-            forName: .notchStatusPlacementDidChange, object: nil, queue: .main
+            forName: .statusIndicatorPlacementDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.updateNotchVisibility(immediate: true)
+            guard let self else { return }
+            self.refreshStatusDisplay(counts: self.lastRenderedCounts ?? .zero)
+            self.updateNotchVisibility(immediate: true)
         }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
@@ -295,16 +297,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     @MainActor private func refreshStatusDisplay(counts: StatusCounts) {
         lastRenderedCounts = counts
-        statusItem.button?.image = MenubarIconRenderer.render(counts: counts)
+        let placement = StatusIndicatorPlacement.current()
+        statusItem.length = placement == .menuBar ? NSStatusItem.squareLength : NSStatusItem.variableLength
+        statusItem.button?.image = MenubarIconRenderer.render(
+            counts: counts,
+            layout: placement == .menuBar ? .compact : .standard
+        )
         notchController.update(counts: counts)
         updateNotchVisibility()
         statusItem.button?.setAccessibilityLabel(counts.accessibilityLabel)
     }
 
     @MainActor private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let placement = StatusIndicatorPlacement.current()
+        let length = placement == .menuBar ? NSStatusItem.squareLength : NSStatusItem.variableLength
+        statusItem = NSStatusBar.system.statusItem(withLength: length)
         if let button = statusItem.button {
-            button.image = MenubarIconRenderer.render(counts: .zero)
+            button.image = MenubarIconRenderer.render(
+                counts: .zero,
+                layout: placement == .menuBar ? .compact : .standard
+            )
             button.action = #selector(togglePanel)
             button.target = self
         }
@@ -347,7 +359,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     /// Show notch panel when the menubar icon is hidden behind the notch.
     @MainActor private func updateNotchVisibility(immediate: Bool = false) {
         notchVisibilityWork?.cancel()
-        guard hasNotch else {
+        guard hasNotch, StatusIndicatorPlacement.current().notchPlacement != nil else {
             notchController.tearDown(); return
         }
         let counts = lastRenderedCounts ?? .zero

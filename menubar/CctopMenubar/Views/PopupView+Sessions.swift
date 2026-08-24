@@ -116,6 +116,7 @@ extension PopupView {
         }
     }
 
+    // swiftlint:disable:next function_body_length
     private func sessionRow(_ row: PanelSessionRow, showNavigateNumbers: Bool) -> some View {
         let focusStrategy = resolveFocusStrategy(session: row.session)
         let focusActionTitle = focusStrategy.actionTitle
@@ -151,6 +152,11 @@ extension PopupView {
                 .disabled(row.userSession.identity.cctopSessionID == nil)
             }
             Divider()
+            Button { dropSession(row) } label: {
+                Label("Drop Until Next Activity", systemImage: "xmark.circle")
+            }
+            .disabled(row.userSession.identity.cctopSessionID == nil)
+            Divider()
             Button { requestHideSession(row) } label: {
                 Label("Hide Session", systemImage: "eye.slash")
             }
@@ -162,6 +168,8 @@ extension PopupView {
                 Button("Acknowledge") { acknowledgeSession(row) }
                     .disabled(row.userSession.identity.cctopSessionID == nil)
             }
+            Button("Drop Until Next Activity") { dropSession(row) }
+                .disabled(row.userSession.identity.cctopSessionID == nil)
             Button("Hide Session") { requestHideSession(row) }
                 .disabled(row.userSession.identity.cctopSessionID == nil)
         }
@@ -171,6 +179,13 @@ extension PopupView {
         guard row.session.status.needsAttention,
               row.userSession.identity.cctopSessionID != nil else { return }
         onAcknowledgeSession(row.userSession.identity)
+    }
+
+    func dropSession(_ row: PanelSessionRow) {
+        guard row.userSession.identity.cctopSessionID != nil else { return }
+        onDropSession(row.userSession.identity)
+        selectedIndex = nil
+        selectedSessionIdentity = nil
     }
 
     func moveSessionSelection(by delta: Int, in rows: [PanelSessionRow]) {

@@ -394,9 +394,12 @@ single press. A second press on that same physical key and session ID within
 350 ms sends Acknowledge for the same target. The first focus still occurs, and
 presses on different key contexts never combine into a double press.
 
-The menubar status item is 36×18 with a centered 36×6 live hairline. It
-resolves semantic colors against the status button's effective light/dark
-appearance. It contains no separate glyph.
+The standard menubar status item is 36×18 with a centered 36×6 live hairline.
+The explicit **Menu Bar** indicator placement uses a compact 18×18 footprint
+with a centered 14×6 live hairline so it is less likely to be occluded by a
+notched display. Both resolve semantic colors against the status button's
+effective light/dark appearance. Neither contains a separate glyph. Selecting
+Menu Bar disables the notch pill; the same click opens the normal cctop panel.
 
 ### Notch pill (`NotchStatusView.swift`)
 
