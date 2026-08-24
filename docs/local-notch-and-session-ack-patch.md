@@ -3,6 +3,9 @@
 This patch is stacked on the local Claude-launched Codex subagent filter in
 `docs/local-claude-codex-delegation-patch.md`. It adds two local UI behaviors:
 
+Persistent rebuild, installation, and hook verification for the complete local
+stack are documented in `docs/local-custom-build-install-runbook.md`.
+
 1. The compact notch status bar defaults to a centered tab immediately below
    the physical notch. Settings > Appearance > Notch Bar can switch between
    Below and the original Side placement.
@@ -80,7 +83,9 @@ This patch is stacked on the local Claude-launched Codex subagent filter in
    press it twice quickly and confirm the exact rendered session turns grey.
    Confirm two different keys never combine into a double press.
 7. Run `make all` while holding the cctop runtime lane.
-8. Capture a real app screenshot on a notched display before reinstalling.
+8. Capture a real app screenshot on a notched display, then reinstall only the
+   assembled `dist/cctop.app` by following
+   `docs/local-custom-build-install-runbook.md`.
 
 Focused regression coverage lives in `NotchVisibilityTests` and
 `SessionAttentionAcknowledgementTests`, plus the Stream Deck protocol tests for

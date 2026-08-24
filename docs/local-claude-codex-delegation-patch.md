@@ -13,6 +13,9 @@ not an upstream cctop behavior unless that branch is later published and merged.
 Use `git log -1 -- docs/local-claude-codex-delegation-patch.md` to locate the
 local patch commit after future rebases or upstream updates.
 
+Persistent rebuild, installation, and hook verification for the complete local
+stack are documented in `docs/local-custom-build-install-runbook.md`.
+
 ## Detection contract
 
 Claude Code adds the `CLAUDE_CODE_CHILD_SESSION` environment key to delegated
@@ -79,8 +82,11 @@ After updating cctop from upstream:
    line numbers. Resolve conflicts against the current lifecycle contracts in
    `docs/session-files.md` and `docs/session-lifecycle.md`.
 7. Under cctop's private runtime lease, run `make all` from the exact worktree.
-8. Install and restart through `script/build_and_run.sh --verify`, then confirm
-   the running app path and installed hook version/hash point to that worktree.
+8. Verify the temporary developer runtime through
+   `script/build_and_run.sh --verify`, then confirm the running app path and
+   installed hook version/hash point to that worktree. For the persistent
+   auto-start installation, follow `docs/local-custom-build-install-runbook.md`
+   and install only the assembled `dist/cctop.app`.
 
 For live behavior verification, inspect the resulting session JSON rather than
 relying only on the panel:

@@ -3,6 +3,9 @@
 This patch is stacked after
 `docs/local-notch-and-session-ack-patch.md`. It adds two local behaviors:
 
+Persistent rebuild, installation, and hook verification for the complete local
+stack are documented in `docs/local-custom-build-install-runbook.md`.
+
 1. **Drop Until Next Activity** removes a session from operational cctop
    surfaces without ending or permanently hiding it. The Dropped selector keeps
    it reachable for Restore Session, and a newer session event also restores it.
@@ -94,7 +97,9 @@ This patch is stacked after
    before changing cctop. Confirm the cctop item is configured to remain visible.
 10. Under cctop's private runtime lease, run `make all`, then `make snapshots`.
    Inspect the Settings placement picker and capture the live menu-bar result on
-   a notched display before publication.
+   a notched display before publication. Install only the assembled
+   `dist/cctop.app` by following
+   `docs/local-custom-build-install-runbook.md`.
 
 Focused regression coverage lives in `SessionAttentionAcknowledgementTests`,
 `SessionTemporaryDropTests`, `WorktreeCleanupTests`, `NotchVisibilityTests`,
