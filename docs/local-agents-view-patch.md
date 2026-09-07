@@ -123,6 +123,26 @@ Pure functions over the published projections; no file access.
   record land in a trailing **Unattributed** group, with their own subtrees
   intact.
 
+## Recency window
+
+The tab answers "what is running under my sessions right now", not "what ran this
+week". `SubworkerTree.visibilityWindow` is 3 hours: an in-process subagent whose
+`last_activity` (or `started_at`, when it never reported one) is older than that,
+and a delegated record whose `last_activity` is older than that, leave the tree
+entirely. Without it the list fills with history — a dormant Codex delegate stays
+`is_subagent` and unfinished for its whole 14-day lifecycle retention, and an
+in-process entry survives until the parent's next `SessionStart`, so dozens of
+day-old records accumulate.
+
+The filter runs before grouping, so an aged-out record becomes neither a node nor
+an Unattributed entry, and each record is judged on its own recency: a
+still-running grandchild of a quiet delegate surfaces as unattributed rather than
+disappearing with its parent. A root left with no children emits no group. The
+30-minute stale marker is unchanged and still applies inside the window, so a
+subagent goes stale first and drops out later. Nothing is deleted: the session
+files, lifecycle, and Cleanup are untouched, and the view uses the panel's shared
+10-second tick as its clock, so rows age out without waiting for a reload.
+
 ## What the Agents selector excludes
 
 `SessionManager.delegatedSessionRecords` is published beside `userSessions`, not

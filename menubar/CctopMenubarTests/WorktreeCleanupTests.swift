@@ -1447,10 +1447,13 @@ final class WorktreeCleanupTests: XCTestCase {
             PopupTab.dropped.helpText,
             "Sessions removed from normal surfaces until restored or newer activity."
         )
-        XCTAssertEqual(
-            PopupTab.agents.helpText,
+        let agentsHelpText = PopupTab.agents.helpText
+        XCTAssertTrue(agentsHelpText.hasPrefix(
             "Sub-workers spawned by your sessions: in-process Claude subagents and delegated Claude or Codex runs."
-        )
+        ))
+        XCTAssertTrue(agentsHelpText.hasSuffix(
+            "Entries idle for more than \(Int(SubworkerTree.visibilityWindow / 3_600)) hours drop out."
+        ))
         let recentHelpText = PopupTab.recent.helpText
         XCTAssertTrue(recentHelpText.contains("Finished work"))
         XCTAssertTrue(recentHelpText.contains("archived desktop sessions"))

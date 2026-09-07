@@ -43,6 +43,13 @@ enum SubworkerTree {
     /// than deleted: the parent may simply not have reported a Stop yet.
     static let staleInterval: TimeInterval = 1_800
 
+    /// Past this, a sub-worker leaves the view entirely. The Agents tab answers "what is
+    /// running under my sessions right now", not "what ran this week": a dormant Codex
+    /// delegate survives its 14-day lifecycle retention, and an in-process entry survives
+    /// until its parent's next SessionStart, so without this the list fills with records
+    /// days old. Nothing is deleted — the records stay on disk and in their own surfaces.
+    static let visibilityWindow: TimeInterval = 3 * 3_600
+
     static let unattributedGroupID = "unattributed"
     static let unattributedGroupTitle = "Unattributed"
 
@@ -83,15 +90,21 @@ enum SubworkerTree {
     ///   - roots: the visible user sessions, in canonical order. Dropped sessions are
     ///     already absent from `SessionManager.userSessions`, so no extra filter is needed.
     ///   - delegated: hidden delegated records, in canonical order.
-    static func build(roots: [UserSession], delegated: [SessionData]) -> Snapshot {
+    ///   - now: the clock the caller is already ticking on, so rows age out between reloads.
+    static func build(roots: [UserSession], delegated: [SessionData], now: Date = Date()) -> Snapshot {
+        // Filtered before anything else is derived, so an aged-out record becomes neither a
+        // node nor an Unattributed entry. Its children are judged on their own recency, so a
+        // still-running grandchild of an idle delegate surfaces as unattributed rather than
+        // disappearing with its parent.
+        let recent = delegated.filter { isWithinVisibilityWindow($0, now: now) }
         var childrenByParent: [HarnessKey: [SessionData]] = [:]
-        for data in delegated {
+        for data in recent {
             guard let key = parentKey(for: data) else { continue }
             childrenByParent[key, default: []].append(data)
         }
         let ownerKeys = Set(
             roots.compactMap { ownKey(for: $0.displayRecord.data) }
-                + delegated.compactMap { ownKey(for: $0) }
+                + recent.compactMap { ownKey(for: $0) }
         )
 
         var consumed: Set<String> = []
@@ -101,17 +114,19 @@ enum SubworkerTree {
                 of: root.displayRecord.data,
                 depth: 1,
                 childrenByParent: childrenByParent,
-                consumed: &consumed
+                consumed: &consumed,
+                now: now
             )
             guard !nodes.isEmpty else { continue }
             groups.append(Group(id: groupID(for: root), root: root, nodes: nodes))
         }
 
         let unattributed = unattributedNodes(
-            in: delegated,
+            in: recent,
             ownerKeys: ownerKeys,
             childrenByParent: childrenByParent,
-            consumed: &consumed
+            consumed: &consumed,
+            now: now
         )
         if !unattributed.isEmpty {
             groups.append(Group(id: unattributedGroupID, root: nil, nodes: unattributed))
@@ -142,6 +157,15 @@ enum SubworkerTree {
         now.timeIntervalSince(info.effectiveActivity) > staleInterval
     }
 
+    static func isWithinVisibilityWindow(_ info: SubagentInfo, now: Date) -> Bool {
+        now.timeIntervalSince(info.effectiveActivity) <= visibilityWindow
+    }
+
+    /// A delegated record reports its own `last_activity`, so recency needs no inference.
+    static func isWithinVisibilityWindow(_ data: SessionData, now: Date) -> Bool {
+        now.timeIntervalSince(data.lastActivity) <= visibilityWindow
+    }
+
     static func groupID(for root: UserSession) -> String {
         root.identity.cctopSessionID.map { "root:\($0)" }
             ?? "root:\(SessionIdentityPolicy.stableKey(for: root.displayRecord.data))"
@@ -153,11 +177,13 @@ enum SubworkerTree {
         of owner: SessionData,
         depth: Int,
         childrenByParent: [HarnessKey: [SessionData]],
-        consumed: inout Set<String>
+        consumed: inout Set<String>,
+        now: Date
     ) -> [Node] {
         let nodeDepth = min(depth, maxDepth)
         let ownerNodeKey = nodeKey(for: owner)
         var nodes = (owner.activeSubagents ?? [])
+            .filter { isWithinVisibilityWindow($0, now: now) }
             .sorted { $0.startedAt < $1.startedAt }
             .map { info in
                 Node(id: "agent:\(ownerNodeKey):\(info.agentId)", depth: nodeDepth, kind: .inProcess(info))
@@ -173,7 +199,8 @@ enum SubworkerTree {
                 of: child,
                 depth: depth + 1,
                 childrenByParent: childrenByParent,
-                consumed: &consumed
+                consumed: &consumed,
+                now: now
             ))
         }
         return nodes
@@ -185,14 +212,15 @@ enum SubworkerTree {
         in delegated: [SessionData],
         ownerKeys: Set<HarnessKey>,
         childrenByParent: [HarnessKey: [SessionData]],
-        consumed: inout Set<String>
+        consumed: inout Set<String>,
+        now: Date
     ) -> [Node] {
         var nodes: [Node] = []
         func place(_ data: SessionData) {
             guard consumed.insert(nodeKey(for: data)).inserted else { return }
             nodes.append(Node(id: nodeKey(for: data), depth: 1, kind: .delegated(data)))
             nodes.append(contentsOf: childNodes(
-                of: data, depth: 2, childrenByParent: childrenByParent, consumed: &consumed
+                of: data, depth: 2, childrenByParent: childrenByParent, consumed: &consumed, now: now
             ))
         }
         for data in delegated {

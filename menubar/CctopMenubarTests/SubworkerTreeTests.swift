@@ -220,6 +220,118 @@ final class SubworkerTreeTests: XCTestCase {
         XCTAssertEqual(ids.count, Set(ids).count)
     }
 
+    // MARK: - Recency window
+
+    private func aged(_ data: SessionData, by seconds: TimeInterval, now: Date) -> SessionData {
+        var copy = data
+        copy.lastActivity = now.addingTimeInterval(-seconds)
+        copy.startedAt = now.addingTimeInterval(-seconds)
+        return copy
+    }
+
+    func testInProcessSubagentJustInsideTheWindowStaysAndReadsStale() {
+        let now = Date()
+        let inside = agent("inside", startedAt: now.addingTimeInterval(-(SubworkerTree.visibilityWindow - 60)))
+        let ccRoot = root(harnessSessionId: "cc-1", subagents: [inside])
+
+        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [], now: now)
+
+        XCTAssertEqual(tree.childCount, 1)
+        XCTAssertTrue(SubworkerTree.isStale(inside, now: now), "still marked, not dropped")
+        XCTAssertEqual(SubworkerTree.summary(for: tree.groups[0], now: now).stale, 1)
+    }
+
+    func testInProcessSubagentPastTheWindowLeavesTheTree() {
+        let now = Date()
+        let ccRoot = root(
+            harnessSessionId: "cc-1",
+            subagents: [
+                agent("gone", startedAt: now.addingTimeInterval(-(SubworkerTree.visibilityWindow + 60))),
+                agent("fresh", startedAt: now.addingTimeInterval(-30))
+            ]
+        )
+
+        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [], now: now)
+
+        XCTAssertEqual(tree.childCount, 1)
+        guard case .inProcess(let survivor) = tree.groups[0].nodes[0].kind else {
+            return XCTFail("expected the fresh subagent")
+        }
+        XCTAssertEqual(survivor.agentId, "fresh")
+    }
+
+    func testInProcessRecencyPrefersLastActivityOverStartedAt() {
+        let now = Date()
+        var longRunning = agent("long", startedAt: now.addingTimeInterval(-86_400))
+        longRunning.lastActivity = now.addingTimeInterval(-30)
+        let ccRoot = root(harnessSessionId: "cc-1", subagents: [longRunning])
+
+        XCTAssertEqual(SubworkerTree.build(roots: [ccRoot], delegated: [], now: now).childCount, 1)
+    }
+
+    func testDelegatedRecordPastTheWindowLeavesTheTreeWithItsIdleChild() {
+        let now = Date()
+        let ccRoot = root(harnessSessionId: "cc-1")
+        let idleParent = aged(
+            delegated(
+                harnessSessionId: "codex-1", source: SessionData.codexSource,
+                parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+            ),
+            by: 4 * 3_600, now: now
+        )
+        let idleChild = aged(
+            delegated(
+                harnessSessionId: "cc-2", source: SessionData.ccSource,
+                parentHarness: SessionData.codexSource, parentHarnessSessionId: "codex-1"
+            ),
+            by: 4 * 3_600, now: now
+        )
+
+        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [idleParent, idleChild], now: now)
+
+        XCTAssertTrue(tree.isEmpty, "neither a node nor an unattributed entry")
+        XCTAssertEqual(tree.childCount, 0)
+    }
+
+    /// Recency is judged per record, so work that is still running does not vanish because
+    /// the record that spawned it went quiet.
+    func testFreshChildOfAnAgedOutDelegateSurvivesAsUnattributed() {
+        let now = Date()
+        let ccRoot = root(harnessSessionId: "cc-1")
+        let idleParent = aged(
+            delegated(
+                harnessSessionId: "codex-1", source: SessionData.codexSource,
+                parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+            ),
+            by: 4 * 3_600, now: now
+        )
+        let freshChild = delegated(
+            harnessSessionId: "cc-2", source: SessionData.ccSource,
+            parentHarness: SessionData.codexSource, parentHarnessSessionId: "codex-1"
+        )
+
+        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [idleParent, freshChild], now: now)
+
+        XCTAssertEqual(tree.groups.count, 1)
+        XCTAssertNil(tree.groups[0].root)
+        XCTAssertEqual(delegatedIDs(tree.groups[0].nodes), ["cc-2"])
+    }
+
+    func testRootWhoseOnlyChildAgedOutEmitsNoGroup() {
+        let now = Date()
+        let ccRoot = root(
+            harnessSessionId: "cc-1",
+            subagents: [agent("gone", startedAt: now.addingTimeInterval(-(SubworkerTree.visibilityWindow + 1)))]
+        )
+        let otherRoot = root(harnessSessionId: "cc-2", subagents: [agent("fresh")])
+
+        let tree = SubworkerTree.build(roots: [ccRoot, otherRoot], delegated: [], now: now)
+
+        XCTAssertEqual(tree.groups.count, 1)
+        XCTAssertEqual(tree.groups[0].root?.identity, otherRoot.identity)
+        XCTAssertEqual(tree.childCount, 1)
+    }
+
     // MARK: - Group summary
 
     private func summaryText(
@@ -265,12 +377,14 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
         )
         child.status = .waitingPermission
+        // Old enough that an in-process entry would read stale, but still inside the
+        // visibility window so the record is present to be counted.
         var old = delegated(
             harnessSessionId: "codex-2", source: SessionData.codexSource,
             parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
         )
-        old.startedAt = Date(timeIntervalSinceNow: -90_000)
-        old.lastActivity = Date(timeIntervalSinceNow: -90_000)
+        old.startedAt = Date(timeIntervalSinceNow: -7_200)
+        old.lastActivity = Date(timeIntervalSinceNow: -7_200)
 
         XCTAssertEqual(summaryText(roots: [ccRoot], delegated: [child, old]), "1 running \u{00B7} 1 waiting")
     }

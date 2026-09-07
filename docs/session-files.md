@@ -330,6 +330,11 @@ blocks that subagent, not the user's session. An agent-scoped `Notification` onl
 advances the child's `last_activity`, because most notification types are not a
 block. The parent's status transition is unchanged in every case.
 
+These entries are persistence, not presentation: they stay in the file until the
+subagent stops or the parent's next `SessionStart`. cctop's Agents view applies
+its own 3-hour recency window on top, described in
+[local-agents-view-patch.md](local-agents-view-patch.md).
+
 ### `pending_subagent_spawns`
 
 Type: `array` of objects

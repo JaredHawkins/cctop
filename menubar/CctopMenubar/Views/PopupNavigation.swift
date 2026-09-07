@@ -31,7 +31,8 @@ enum PopupTab: CaseIterable, Hashable {
         case .dropped:
             return "Sessions removed from normal surfaces until restored or newer activity."
         case .agents:
-            return "Sub-workers spawned by your sessions: in-process Claude subagents and delegated Claude or Codex runs."
+            return "Sub-workers spawned by your sessions: in-process Claude subagents and delegated Claude or Codex runs. "
+                + "Entries idle for more than \(Self.visibilityWindowText) drop out."
         case .recent:
             return "Finished work and archived desktop sessions. Rows open the project or app when possible."
         case .cleanup:
@@ -78,6 +79,10 @@ enum PopupTab: CaseIterable, Hashable {
         default:
             return current
         }
+    }
+
+    private static var visibilityWindowText: String {
+        "\(Int(SubworkerTree.visibilityWindow / 3_600)) hours"
     }
 
     private static var staleIdleDurationText: String {
