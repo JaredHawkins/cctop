@@ -220,6 +220,61 @@ final class SubworkerTreeTests: XCTestCase {
         XCTAssertEqual(ids.count, Set(ids).count)
     }
 
+    // MARK: - Group summary
+
+    private func summaryText(
+        roots: [UserSession], delegated: [SessionData], now: Date = Date()
+    ) -> String? {
+        let tree = SubworkerTree.build(roots: roots, delegated: delegated)
+        return SubworkerTree.summary(for: tree.groups[0], now: now).text
+    }
+
+    func testGroupSummaryCountsRunningStaleAndWaitingExclusively() {
+        let now = Date()
+        var waiting = agent("waiting", startedAt: now.addingTimeInterval(-10))
+        waiting.waitingMessage = "Allow Bash: make swift-test"
+        // Silent long enough to be stale, but a pending prompt outranks staleness.
+        var waitingAndSilent = agent("both", startedAt: now.addingTimeInterval(-7_200))
+        waitingAndSilent.waitingMessage = "Allow Bash: rm -rf build"
+        let stale = agent("stale", startedAt: now.addingTimeInterval(-7_200))
+        let running = agent("running", startedAt: now.addingTimeInterval(-20))
+        let ccRoot = root(
+            harnessSessionId: "cc-1",
+            subagents: [waiting, waitingAndSilent, stale, running]
+        )
+
+        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [])
+        let summary = SubworkerTree.summary(for: tree.groups[0], now: now)
+
+        XCTAssertEqual(summary.running, 1)
+        XCTAssertEqual(summary.stale, 1)
+        XCTAssertEqual(summary.waiting, 2)
+        XCTAssertEqual(summary.text, "1 running \u{00B7} 1 stale \u{00B7} 2 waiting")
+        XCTAssertEqual(summary.running + summary.stale + summary.waiting, tree.groups[0].nodes.count)
+    }
+
+    func testGroupSummaryIsOmittedWhenEverythingIsRunning() {
+        let ccRoot = root(harnessSessionId: "cc-1", subagents: [agent("a1"), agent("a2")])
+        XCTAssertNil(summaryText(roots: [ccRoot], delegated: []))
+    }
+
+    func testGroupSummaryTreatsAWaitingDelegatedRecordAsWaitingAndNeverStale() {
+        let ccRoot = root(harnessSessionId: "cc-1")
+        var child = delegated(
+            harnessSessionId: "codex-1", source: SessionData.codexSource,
+            parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+        )
+        child.status = .waitingPermission
+        var old = delegated(
+            harnessSessionId: "codex-2", source: SessionData.codexSource,
+            parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+        )
+        old.startedAt = Date(timeIntervalSinceNow: -90_000)
+        old.lastActivity = Date(timeIntervalSinceNow: -90_000)
+
+        XCTAssertEqual(summaryText(roots: [ccRoot], delegated: [child, old]), "1 running \u{00B7} 1 waiting")
+    }
+
     // MARK: - Staleness
 
     func testStalenessUsesLastActivityThenFallsBackToStartedAt() {

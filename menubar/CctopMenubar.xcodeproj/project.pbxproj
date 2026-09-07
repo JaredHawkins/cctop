@@ -26,6 +26,7 @@
 		PVH000010000000000000001 /* PopupViewHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVH000020000000000000001 /* PopupViewHelpers.swift */; };
 		PVR000010000000000000001 /* PopupView+Recent.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVR000020000000000000001 /* PopupView+Recent.swift */; };
 		PVA000010000000000000001 /* PopupView+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVA000020000000000000001 /* PopupView+Agents.swift */; };
+		SWR000010000000000000001 /* SubworkerRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWR000020000000000000001 /* SubworkerRowView.swift */; };
 		D10000090000000000000001 /* QuitButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1000000A000000000000001 /* QuitButton.swift */; };
 		FTR000010000000000000001 /* FocusTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTR000020000000000000001 /* FocusTargetResolver.swift */; };
 		E10000010000000000000001 /* FocusTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000020000000000000001 /* FocusTerminal.swift */; };
@@ -338,6 +339,7 @@
 		PCU000020000000000000001 /* PopupView+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PopupView+Cleanup.swift"; sourceTree = "<group>"; };
 		PVR000020000000000000001 /* PopupView+Recent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PopupView+Recent.swift"; sourceTree = "<group>"; };
 		PVA000020000000000000001 /* PopupView+Agents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PopupView+Agents.swift"; sourceTree = "<group>"; };
+		SWR000020000000000000001 /* SubworkerRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubworkerRowView.swift; sourceTree = "<group>"; };
 		WCV000020000000000000001 /* WorktreeCleanupCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCleanupCardView.swift; sourceTree = "<group>"; };
 		WDV000020000000000000001 /* WorktreeCleanupDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCleanupDetailView.swift; sourceTree = "<group>"; };
 		WTV000020000000000000001 /* WorktreeCleanupTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCleanupTabView.swift; sourceTree = "<group>"; };
@@ -506,6 +508,7 @@
 				PCU000020000000000000001 /* PopupView+Cleanup.swift */,
 				PVR000020000000000000001 /* PopupView+Recent.swift */,
 				PVA000020000000000000001 /* PopupView+Agents.swift */,
+				SWR000020000000000000001 /* SubworkerRowView.swift */,
 				PVH000020000000000000001 /* PopupViewHelpers.swift */,
 				D1000000A000000000000001 /* QuitButton.swift */,
 				J10000020000000000000001 /* SettingsSection.swift */,
@@ -814,6 +817,7 @@
 				PCU000010000000000000001 /* PopupView+Cleanup.swift in Sources */,
 				PVR000010000000000000001 /* PopupView+Recent.swift in Sources */,
 				PVA000010000000000000001 /* PopupView+Agents.swift in Sources */,
+				SWR000010000000000000001 /* SubworkerRowView.swift in Sources */,
 				WCV000010000000000000001 /* WorktreeCleanupCardView.swift in Sources */,
 				WDV000010000000000000001 /* WorktreeCleanupDetailView.swift in Sources */,
 				WTV000010000000000000001 /* WorktreeCleanupTabView.swift in Sources */,

@@ -2441,11 +2441,20 @@ final class SessionTests: XCTestCase {
                 SubagentInfo(
                     agentId: "agent-1", agentType: "explore",
                     startedAt: isoDate("2026-02-08T12:10:00.345Z"),
-                    description: "Check the shim", lastTool: "Grep", lastToolDetail: "PopupTab",
-                    lastActivity: isoDate("2026-02-08T12:12:00.678Z")
+                    description: "Check the shim", model: "sonnet", subagentType: "Explore",
+                    promptExcerpt: "Check the shim end to end",
+                    lastTool: "Grep", lastToolDetail: "PopupTab",
+                    lastActivity: isoDate("2026-02-08T12:12:00.678Z"),
+                    toolCallCount: 7, recentTools: ["Read: a.swift", "Grep: PopupTab"],
+                    waitingMessage: "Allow Bash: swiftlint lint"
                 )
             ],
-            pendingSubagentDescriptions: ["Review the tree"],
+            pendingSubagentSpawns: [
+                PendingSubagentSpawn(
+                    description: "Review the tree", model: "opus",
+                    subagentType: "expert-review", promptExcerpt: "Check the tree rules"
+                )
+            ],
             isSubagentSession: true,
             parentHarness: "cc",
             parentHarnessSessionId: "parent-fixture|raw",

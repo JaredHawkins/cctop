@@ -452,7 +452,7 @@ temporarily dropped rows and their Restore Session action.
 
 ### Agents view (`PopupView+Agents.swift`)
 
-A grouped, read-only list. Each group header restates its parent session in the
+A grouped list, read-only apart from expansion. Each group header restates its parent session in the
 session card's own vocabulary — 13 px semibold name, quiet source badge, the same
 status label, and the shared 10.5 px relative time — and clicking it runs the
 exact focus action that row already uses. Child rows are quieter: 11 px medium
@@ -461,9 +461,16 @@ title (subagent type, or the delegated session's display name), 10.5 px
 from session card row 3, and a 10.5 px elapsed time. Depth indents 12 px per
 level, capped at three levels. A sub-worker silent for over 30 minutes drops to
 `textSecondary`/`textMuted` and its time reads "… · stale"; the row is never
-removed. Rows carry no navigate number, acknowledge, drop, or hide action, and
-the trailing Unattributed group collects sub-workers whose parent is not on
-screen. The session card's purple subagent count is the same 10 px badge, now a
+removed. Under each header a 10 px `textMuted` summary line reads "1 running \u{00B7} 1 stale
+\u{00B7} 2 waiting", omitted when everything is running. Every row expands on click
+behind an 8 px rotating chevron, revealing 10.5 px label/value lines (label
+`textMuted` in a 66 px column, value `textSecondary`, monospaced for tool and
+branch lines) plus the spawning prompt in a bordered `groupedRowBackground` block
+capped at six lines. A row waiting on a permission prompt gets a 6 px
+`statusPermission` dot on its title line and renders that message in
+`statusPermissionText`. Rows carry no navigate number, acknowledge, drop, or hide
+action, and the trailing Unattributed group collects sub-workers whose parent is
+not on screen. The session card's purple subagent count is the same 10 px badge, now a
 plain button that opens this view.
 
 ### Settings grouped list

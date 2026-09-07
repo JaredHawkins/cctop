@@ -26,7 +26,8 @@ extension PopupView {
                         SubworkerGroupView(
                             group: group,
                             relativeTimeNow: relativeTimeNow,
-                            onFocusRoot: { focusSession($0) }
+                            onFocusRoot: { focusSession($0) },
+                            onLayoutChanged: notifyLayoutChanged
                         )
                     }
                 }
@@ -44,15 +45,45 @@ struct SubworkerGroupView: View {
     var relativeTimeNow = Date()
     /// Focuses the root through the same action the session row uses.
     var onFocusRoot: (SessionData) -> Void = { _ in }
+    /// The panel's existing refit path. Expanding a row changes content height, and without
+    /// this the NSPanel keeps its collapsed frame and squeezes the detail into the old
+    /// viewport. `PopupView.notifyLayoutChanged` already defers to the next main-queue turn,
+    /// so the host measures the applied layout, not the pre-toggle one.
+    var onLayoutChanged: () -> Void = {}
+    /// Seeded expansion, used by previews. Live state lives in `expandedNodeIDs`.
+    var initiallyExpandedNodeIDs: Set<String> = []
+
+    @State private var expandedNodeIDs: Set<String>?
+
+    private var expanded: Set<String> { expandedNodeIDs ?? initiallyExpandedNodeIDs }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             header
+            if let summaryText = SubworkerTree.summary(for: group, now: relativeTimeNow).text {
+                Text(summaryText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.textMuted)
+                    .padding(.horizontal, 9 + AppChrome.rowSelectionHorizontalInset)
+                    .accessibilityLabel("Group status: \(summaryText)")
+            }
             ForEach(group.nodes) { node in
-                SubworkerRowView(node: node, relativeTimeNow: relativeTimeNow)
+                SubworkerRowView(
+                    node: node,
+                    relativeTimeNow: relativeTimeNow,
+                    isExpanded: expanded.contains(node.id),
+                    onToggle: { toggle(node.id) }
+                )
             }
         }
         .padding(.top, 6)
+    }
+
+    private func toggle(_ nodeID: String) {
+        var next = expanded
+        if next.remove(nodeID) == nil { next.insert(nodeID) }
+        expandedNodeIDs = next
+        onLayoutChanged()
     }
 
     @ViewBuilder
@@ -152,130 +183,6 @@ struct SubworkerStatusLabel: View {
     }
 }
 
-struct SubworkerRowView: View {
-    let node: SubworkerTree.Node
-    var relativeTimeNow = Date()
-
-    private var indent: CGFloat { CGFloat(node.depth - 1) * 12 }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            titleLine
-            if let activity = activityText {
-                HStack(spacing: 0) {
-                    Text("› ")
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(Color.statusGreen.opacity(0.7))
-                    Text(activity)
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(secondaryColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .padding(.leading, 9 + indent + AppChrome.rowSelectionHorizontalInset)
-        .padding(.trailing, 9 + AppChrome.rowSelectionHorizontalInset)
-        .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var titleLine: some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isStale ? Color.textSecondary : Color.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if case .delegated(let session) = node.kind {
-                SourceBadgeView(badge: session.agentBadge)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            if let subtitle {
-                Text(subtitle)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Color.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 0)
-            if case .delegated(let session) = node.kind {
-                SubworkerStatusLabel(session: session)
-            }
-            Text(elapsedText)
-                .font(.system(size: 10.5))
-                .monospacedDigit()
-                .foregroundStyle(Color.textMuted)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-    }
-
-    // MARK: - Copy
-
-    private var title: String {
-        switch node.kind {
-        case .inProcess(let info): return info.agentType
-        case .delegated(let session): return session.displayName
-        }
-    }
-
-    private var subtitle: String? {
-        guard case .inProcess(let info) = node.kind else { return nil }
-        return info.description
-    }
-
-    private var isStale: Bool {
-        guard case .inProcess(let info) = node.kind else { return false }
-        return SubworkerTree.isStale(info, now: relativeTimeNow)
-    }
-
-    private var secondaryColor: Color {
-        isStale ? Color.textMuted : Color.textSecondary
-    }
-
-    private var elapsedText: String {
-        let started: Date
-        switch node.kind {
-        case .inProcess(let info): started = info.startedAt
-        case .delegated(let session): started = session.startedAt
-        }
-        let elapsed = started.relativeDescription(asOf: relativeTimeNow)
-        return isStale ? "\(elapsed) · stale" : elapsed
-    }
-
-    /// In-process rows show the subagent's own tool. Delegated rows follow the session
-    /// card's choice: a pending permission prompt wins over the running tool.
-    private var activityText: String? {
-        switch node.kind {
-        case .inProcess(let info):
-            guard let tool = info.lastTool else { return "no tool yet" }
-            guard let detail = info.lastToolDetail else { return "\(tool)..." }
-            return "\(tool): \(detail)"
-        case .delegated(let session):
-            if session.status == .waitingPermission {
-                return session.notificationMessage ?? "Permission needed"
-            }
-            guard let tool = session.lastTool else { return nil }
-            guard let detail = session.lastToolDetail else { return "\(tool)..." }
-            return "\(tool): \(detail)"
-        }
-    }
-
-    private var accessibilityLabel: String {
-        var parts: [String] = [title]
-        if let subtitle { parts.append(subtitle) }
-        if case .delegated(let session) = node.kind {
-            parts.append(session.status.accessibilityDescription)
-        }
-        parts.append("started \(elapsedText)")
-        if let activityText { parts.append(activityText) }
-        return parts.joined(separator: ", ")
-    }
-}
-
 // MARK: - Previews
 
 #Preview("Agents — three levels") {
@@ -290,4 +197,23 @@ struct SubworkerRowView: View {
         initialTab: .agents
     )
     .frame(width: 320)
+}
+
+#Preview("Agents — expanded rows") {
+    let tree = SubworkerTree.build(
+        roots: SubworkerTree.previewRoots,
+        delegated: SubworkerTree.previewDelegatedRecords.map(\.data)
+    )
+    return ScrollView {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(tree.groups) { group in
+                SubworkerGroupView(
+                    group: group,
+                    initiallyExpandedNodeIDs: SubworkerTree.previewExpandedNodeIDs(in: group)
+                )
+            }
+        }
+    }
+    .frame(width: 320, height: 560)
+    .background { PanelSurfaceBackground() }
 }

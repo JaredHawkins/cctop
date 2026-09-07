@@ -8,6 +8,23 @@ enum SubworkerKind: Equatable {
     case delegated(SessionData)
 }
 
+/// Counts behind a group's summary line.
+struct SubworkerGroupSummary: Equatable {
+    let running: Int
+    let stale: Int
+    let waiting: Int
+
+    /// Nil when "N running" is the whole story, since the row count already says that.
+    var text: String? {
+        guard stale > 0 || waiting > 0 else { return nil }
+        var parts: [String] = []
+        if running > 0 { parts.append("\(running) running") }
+        if stale > 0 { parts.append("\(stale) stale") }
+        if waiting > 0 { parts.append("\(waiting) waiting") }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+}
+
 /// Pure model behind the Agents view: which sub-workers each visible session currently owns.
 ///
 /// Two kinds of sub-worker exist and they are deliberately kept separate:
@@ -100,6 +117,25 @@ enum SubworkerTree {
             groups.append(Group(id: unattributedGroupID, root: nil, nodes: unattributed))
         }
         return Snapshot(groups: groups)
+    }
+
+    /// One line of "what is this group doing" under its header. Categories are exclusive and
+    /// ranked waiting > stale > running, so the counts always add up to the group's node count.
+    static func summary(for group: Group, now: Date) -> SubworkerGroupSummary {
+        var running = 0
+        var stale = 0
+        var waiting = 0
+        for node in group.nodes {
+            switch node.kind {
+            case .inProcess(let info):
+                if info.waitingMessage != nil { waiting += 1 } else if isStale(info, now: now) { stale += 1 } else { running += 1 }
+            case .delegated(let data):
+                // A delegated record has its own lifecycle and status, so cctop never has to
+                // guess staleness from silence the way it does for an in-process subagent.
+                if data.status == .waitingPermission { waiting += 1 } else { running += 1 }
+            }
+        }
+        return SubworkerGroupSummary(running: running, stale: stale, waiting: waiting)
     }
 
     static func isStale(_ info: SubagentInfo, now: Date) -> Bool {
@@ -200,13 +236,33 @@ extension SubworkerTree {
                 SubagentInfo(
                     agentId: "a1", agentType: "Explore",
                     startedAt: Date().addingTimeInterval(-95),
-                    description: "Find the tab switch", lastTool: "Grep",
-                    lastToolDetail: "PopupTab", lastActivity: Date().addingTimeInterval(-4)
+                    description: "Find the tab switch",
+                    model: "sonnet", subagentType: "Explore",
+                    promptExcerpt: "Locate every switch over PopupTab and report the files that would "
+                        + "need a new case, including the keyboard cycling path.",
+                    lastTool: "Grep", lastToolDetail: "PopupTab",
+                    lastActivity: Date().addingTimeInterval(-4),
+                    toolCallCount: 12,
+                    recentTools: [
+                        "Read: PopupNavigation.swift", "Grep: secondaryCases",
+                        "Read: PopupView.swift", "Bash: rg -n PopupTab", "Grep: PopupTab"
+                    ]
                 ),
                 SubagentInfo(
                     agentId: "a2", agentType: "expert-review",
                     startedAt: Date().addingTimeInterval(-3_400),
-                    description: "Review the delegation contract"
+                    description: "Review the delegation contract",
+                    toolCallCount: 3
+                ),
+                SubagentInfo(
+                    agentId: "a3", agentType: "general-purpose",
+                    startedAt: Date().addingTimeInterval(-140),
+                    description: "Rebuild the hook",
+                    lastTool: "Bash", lastToolDetail: "make swift-test",
+                    lastActivity: Date().addingTimeInterval(-30),
+                    toolCallCount: 5,
+                    recentTools: ["Bash: make lint", "Bash: make swift-test"],
+                    waitingMessage: "Allow Bash: make swift-test"
                 )
             ]
         )
@@ -259,6 +315,22 @@ extension SubworkerTree {
                 displayRecord: record
             )
         }
+    }
+
+    /// Expands one in-process row and one delegated row so the detail blocks are inspectable.
+    static func previewExpandedNodeIDs(in group: Group) -> Set<String> {
+        var ids: Set<String> = []
+        for node in group.nodes {
+            switch node.kind {
+            case .inProcess where !ids.contains(where: { $0.hasPrefix("agent:") }):
+                ids.insert(node.id)
+            case .delegated where !ids.contains(where: { $0.hasPrefix("session:") }):
+                ids.insert(node.id)
+            default:
+                continue
+            }
+        }
+        return ids
     }
 
     static var previewDelegatedRecords: [SessionRecord] {

@@ -312,27 +312,37 @@ records written by earlier hooks keep loading:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `description` | string | `null` | Task label paired from the parent's own `Agent`/`Task` `PreToolUse`. `SubagentStart` does not carry it. |
+| `model` | string | `null` | `tool_input.model` from the spawning call, when supplied. |
+| `subagent_type` | string | `null` | `tool_input.subagent_type` from the spawning call. Often equals `agent_type`. |
+| `prompt_excerpt` | string | `null` | First 400 characters of the spawning call's `tool_input.prompt`, whitespace-collapsed. |
 | `last_tool` | string | `null` | Tool name from the subagent's most recent `PreToolUse`. |
 | `last_tool_detail` | string | `null` | That tool's detail, extracted by the same rule as the session's `last_tool_detail`. |
 | `last_activity` | date | `null` | Most recent agent-scoped hook. Display falls back to `started_at` when absent. |
+| `tool_call_count` | integer | `null` | Agent-scoped `PreToolUse` events observed so far. |
+| `recent_tools` | array of strings | `null` | Ring buffer of the last 5 `"Tool: detail"` lines, newest last. Each entry is whitespace-collapsed display copy; `last_tool_detail` keeps the raw value. |
+| `waiting_message` | string | `null` | What this subagent is blocked on, from an agent-scoped `PermissionRequest` only. Cleared by its next tool call. |
 
 Claude Code sends `agent_id` (and `agent_type`) on ANY hook fired from inside a
-subagent, not only `SubagentStart`/`SubagentStop`. An agent-scoped tool event
-updates its own entry and must never overwrite the parent's `last_tool` or
-`last_tool_detail`.
+subagent, not only `SubagentStart`/`SubagentStop`. An agent-scoped event updates
+its own entry and must never overwrite the parent's `last_tool`,
+`last_tool_detail`, or `notification_message`: a subagent's permission prompt
+blocks that subagent, not the user's session. An agent-scoped `Notification` only
+advances the child's `last_activity`, because most notification types are not a
+block. The parent's status transition is unchanged in every case.
 
-### `pending_subagent_descriptions`
+### `pending_subagent_spawns`
 
-Type: `array` of strings
+Type: `array` of objects
 
 Default: `null` when omitted.
 
-FIFO queue of `Agent`/`Task` descriptions observed on the parent's own
-`PreToolUse` but not yet paired with a `SubagentStart`. `SubagentStart` pops the
-first entry into that subagent's `description`. The queue is capped at 16 entries
-(oldest dropped first) and cleared at every prompt boundary — `SessionStart`,
-`UserPromptSubmit`, and `Stop` — so a stale label can never attach to a subagent
-spawned by a later turn.
+FIFO queue of `Agent`/`Task` spawns observed on the parent's own `PreToolUse` but
+not yet paired with a `SubagentStart`. Each entry holds the optional
+`description`, `model`, `subagent_type`, and `prompt_excerpt` of that call;
+`SubagentStart` pops the first entry into the subagent it starts. The queue is
+capped at 16 entries (oldest dropped first) and cleared at every prompt
+boundary — `SessionStart`, `UserPromptSubmit`, and `Stop` — so a stale label can
+never attach to a subagent spawned by a later turn.
 
 ### `parent_harness` and `parent_harness_session_id`
 

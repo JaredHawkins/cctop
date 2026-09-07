@@ -1,6 +1,14 @@
 // swiftlint:disable file_length
 import Foundation
 
+extension String {
+    /// Collapses every run of whitespace to one space so a multi-line value reads as a single
+    /// line. Used for stored display copy, never for values cctop matches on.
+    var whitespaceCollapsed: String {
+        split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+}
+
 // MARK: - Shared date formatting
 
 extension Date {
@@ -187,31 +195,104 @@ extension MultiplexerInfo {
     }
 }
 
+/// One `Agent`/`Task` spawn seen on the parent's own PreToolUse, waiting to be paired with
+/// the `SubagentStart` that follows it. `SubagentStart` carries only an id and a type, so
+/// everything descriptive about a subagent has to come from here.
+struct PendingSubagentSpawn: Codable, Equatable {
+    var description: String?
+    var model: String?
+    var subagentType: String?
+    var promptExcerpt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case description, model
+        case subagentType = "subagent_type"
+        case promptExcerpt = "prompt_excerpt"
+    }
+
+    var isEmpty: Bool {
+        description == nil && model == nil && subagentType == nil && promptExcerpt == nil
+    }
+}
+
 /// One in-process subagent owned by a parent session. Every field after `startedAt` is
 /// optional so records written by hooks that predate per-subagent attribution still decode.
 struct SubagentInfo: Codable, Equatable {
+    /// Newest-last ring buffer size for `recentTools`.
+    static let recentToolsLimit = 5
+
     let agentId: String
     let agentType: String
     let startedAt: Date
     /// Task label paired from the parent's own `Agent`/`Task` PreToolUse. `SubagentStart`
     /// itself carries only the id and type.
     var description: String?
+    /// Model and subagent type requested by the spawning `Agent` call, when supplied.
+    var model: String?
+    var subagentType: String?
+    /// Whitespace-collapsed head of the spawning call's prompt.
+    var promptExcerpt: String?
     var lastTool: String?
     var lastToolDetail: String?
     var lastActivity: Date?
+    /// Agent-scoped `PreToolUse` events observed so far.
+    var toolCallCount: Int?
+    /// Last `recentToolsLimit` whitespace-collapsed "Tool: detail" lines, newest last.
+    var recentTools: [String]?
+    /// Set by an agent-scoped `PermissionRequest` and cleared when the subagent runs its next
+    /// tool. Only a permission request proves a block: other notification types
+    /// (`auth_success`, `agent_completed`, ...) merely prove the child is alive. The parent is
+    /// not the one waiting, so its own `notificationMessage` is left alone.
+    var waitingMessage: String?
 
     enum CodingKeys: String, CodingKey {
         case agentId = "agent_id"
         case agentType = "agent_type"
         case startedAt = "started_at"
-        case description
+        case description, model
+        case subagentType = "subagent_type"
+        case promptExcerpt = "prompt_excerpt"
         case lastTool = "last_tool"
         case lastToolDetail = "last_tool_detail"
         case lastActivity = "last_activity"
+        case toolCallCount = "tool_call_count"
+        case recentTools = "recent_tools"
+        case waitingMessage = "waiting_message"
     }
 
     /// The best available "still working" timestamp for staleness display.
     var effectiveActivity: Date { lastActivity ?? startedAt }
+
+    /// True once a queued spawn has been paired into this entry, so a later `SubagentStart`
+    /// for the same id cannot consume a second one.
+    var hasSpawnMetadata: Bool {
+        description != nil || model != nil || subagentType != nil || promptExcerpt != nil
+    }
+
+    mutating func apply(spawn: PendingSubagentSpawn?) {
+        guard let spawn else { return }
+        description = description ?? spawn.description
+        model = model ?? spawn.model
+        subagentType = subagentType ?? spawn.subagentType
+        promptExcerpt = promptExcerpt ?? spawn.promptExcerpt
+    }
+
+    /// Records the tool an agent-scoped `PreToolUse` reported and advances the ring buffer.
+    /// Running a tool also means the subagent is no longer blocked on a prompt.
+    mutating func recordToolCall(tool: String, detail: String?) {
+        lastTool = tool
+        lastToolDetail = detail
+        toolCallCount = (toolCallCount ?? 0) + 1
+        var recent = recentTools ?? []
+        // `lastToolDetail` stays raw; the ring buffer is display copy, and a multi-line Bash
+        // command would otherwise turn one entry into dozens of rendered lines.
+        recent.append(detail.map { "\(tool): \($0.whitespaceCollapsed)" } ?? tool)
+        if recent.count > Self.recentToolsLimit {
+            recent.removeFirst(recent.count - Self.recentToolsLimit)
+        }
+        recentTools = recent
+        waitingMessage = nil
+    }
 }
 
 /// Display-only lifecycle of a session, derived on each load and never persisted (a new
@@ -270,9 +351,9 @@ struct SessionData: Codable, Identifiable, Equatable {
     var endedAt: Date?
     var disconnectedAt: Date?
     var activeSubagents: [SubagentInfo]?
-    /// FIFO queue of `Agent`/`Task` descriptions seen on the parent's own PreToolUse but not
-    /// yet paired with a `SubagentStart`. Bounded; cleared on every prompt boundary.
-    var pendingSubagentDescriptions: [String]?
+    /// FIFO queue of `Agent`/`Task` spawns seen on the parent's own PreToolUse but not yet
+    /// paired with a `SubagentStart`. Bounded; cleared on every prompt boundary.
+    var pendingSubagentSpawns: [PendingSubagentSpawn]?
     var isSubagentSession: Bool
     /// Harness that spawned this delegated session (`cc` or `codex`), when the hook
     /// environment proved it. Never cleared by a later event that lacks the evidence.
@@ -357,7 +438,7 @@ struct SessionData: Codable, Identifiable, Equatable {
         case endedAt = "ended_at"
         case disconnectedAt = "disconnected_at"
         case activeSubagents = "active_subagents"
-        case pendingSubagentDescriptions = "pending_subagent_descriptions"
+        case pendingSubagentSpawns = "pending_subagent_spawns"
         case isSubagentSession = "is_subagent"
         case parentHarness = "parent_harness"
         case parentHarnessSessionId = "parent_harness_session_id"
@@ -393,8 +474,8 @@ struct SessionData: Codable, Identifiable, Equatable {
         endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
         disconnectedAt = try container.decodeIfPresent(Date.self, forKey: .disconnectedAt)
         activeSubagents = try container.decodeIfPresent([SubagentInfo].self, forKey: .activeSubagents)
-        pendingSubagentDescriptions = try container.decodeIfPresent(
-            [String].self, forKey: .pendingSubagentDescriptions
+        pendingSubagentSpawns = try container.decodeIfPresent(
+            [PendingSubagentSpawn].self, forKey: .pendingSubagentSpawns
         )
         isSubagentSession = try container.decodeIfPresent(Bool.self, forKey: .isSubagentSession) ?? false
         parentHarness = try container.decodeIfPresent(String.self, forKey: .parentHarness)
@@ -429,7 +510,7 @@ struct SessionData: Codable, Identifiable, Equatable {
         endedAt: Date? = nil,
         disconnectedAt: Date? = nil,
         activeSubagents: [SubagentInfo]? = nil,
-        pendingSubagentDescriptions: [String]? = nil,
+        pendingSubagentSpawns: [PendingSubagentSpawn]? = nil,
         isSubagentSession: Bool = false,
         parentHarness: String? = nil,
         parentHarnessSessionId: String? = nil,
@@ -460,7 +541,7 @@ struct SessionData: Codable, Identifiable, Equatable {
         self.endedAt = endedAt
         self.disconnectedAt = disconnectedAt
         self.activeSubagents = activeSubagents
-        self.pendingSubagentDescriptions = pendingSubagentDescriptions
+        self.pendingSubagentSpawns = pendingSubagentSpawns
         self.isSubagentSession = isSubagentSession
         self.parentHarness = parentHarness
         self.parentHarnessSessionId = parentHarnessSessionId

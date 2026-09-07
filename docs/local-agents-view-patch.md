@@ -77,11 +77,27 @@ subagent."
   first observed event can beat (or replace) its `SubagentStart`.
 - Parent `last_activity`, status transitions, session naming, and every other
   side effect are unchanged.
-- `SubagentStart` carries no task label. The parent's own `PreToolUse` for
-  `tool_name == "Agent"` (legacy `"Task"`) fires just before it with
-  `tool_input.description`, so descriptions are queued in
-  `pending_subagent_descriptions` and paired FIFO. The queue is capped at 16 and
-  cleared on `SessionStart`, `UserPromptSubmit`, and `Stop`.
+- An agent-scoped `PreToolUse` also increments `tool_call_count`, appends to the
+  5-entry `recent_tools` ring buffer, and clears `waiting_message` (running a tool
+  proves the subagent is no longer blocked). Ring-buffer entries are
+  whitespace-collapsed display copy, so a multi-line Bash command stays one line;
+  `last_tool_detail` keeps the raw value.
+- An agent-scoped `PermissionRequest` writes that subagent's `waiting_message`
+  and leaves the parent's `notification_message` and running tool alone: the
+  subagent is the one waiting. An agent-scoped `Notification` protects the same
+  parent fields but only advances the child's `last_activity` — types such as
+  `auth_success` and `agent_completed` are not a block, and treating them as one
+  would leave a permission dot and a "waiting" count on a working subagent. The
+  parent's status transition is unchanged in both cases, so the card and counts
+  still show that the session needs attention.
+- `SubagentStart` carries no task label, model, or prompt. The parent's own
+  `PreToolUse` for `tool_name == "Agent"` (legacy `"Task"`) fires just before it
+  with `tool_input.description`, `.model`, `.subagent_type`, and `.prompt`, so
+  those are queued in `pending_subagent_spawns` and paired FIFO. A spawn is queued
+  whenever any of those fields is present, so pairing stays aligned even when a
+  call omits its description. `prompt_excerpt` is the whitespace-collapsed first
+  400 characters. The queue is capped at 16 and cleared on `SessionStart`,
+  `UserPromptSubmit`, and `Stop`.
 
 All of this stays inside the existing locked read-modify-write; nothing new is
 written outside it. Field-level defaults are in
@@ -124,8 +140,31 @@ It feeds the Agents view and nothing else. It does not reach:
 - Recent Projects, Cleanup, or history archiving
 
 Agents rows themselves carry no navigate number and no acknowledge, drop, or hide
-action. Keyboard selection skips the view entirely; only the group header is
-clickable, and it runs the exact focus action the session row already uses.
+action. Keyboard selection skips the view entirely; the group header runs the
+exact focus action the session row already uses, and a row click only expands or
+collapses that row.
+
+## Row detail
+
+Each group header is followed by a summary line — "1 running · 1 stale ·
+2 waiting" — from `SubworkerTree.summary(for:now:)`. Its categories are exclusive
+and ranked waiting > stale > running, so they always total the group's row count;
+the line is omitted when everything is simply running. Delegated records are never
+counted stale, because they carry their own lifecycle and status instead of being
+inferred from silence.
+
+Every row expands in place on click, with a rotating chevron affordance.
+Expansion is `@State` inside `SubworkerGroupView`, keyed by node id; nothing is
+persisted. Toggling calls `PopupView.notifyLayoutChanged` — the panel's existing
+refit path, already deferred to the next main-queue turn — so the `NSPanel`
+grows to the new content height instead of squeezing the detail into its
+collapsed frame. The recent-tools block renders one capped line per entry. An in-process row shows task, type/subagent type/model, absolute start
+time plus elapsed, last activity, tool-call count, the recent-tools buffer,
+`waiting_message` in the permission color, and the spawning prompt in a bordered
+block capped at six lines. A delegated row shows project path (tilde-abbreviated),
+branch, PID, start time, last activity, its permission message when it is
+waiting, and the same bordered block over `last_prompt`. A waiting row also gets a
+permission-colored dot on its title line.
 
 ## Regression coverage
 
@@ -152,24 +191,39 @@ Attribution (`HookHandlerTests`):
    `last_tool` untouched; a missing child is created.
 8. An agent-scoped `PostToolUse` advances only the child's `last_activity`.
 9. Two parallel spawns pair their descriptions FIFO; the legacy `Task` name also
-   queues; an agent-scoped spawn does not queue for its own parent.
+   queues; an agent-scoped spawn does not queue for its own parent; `model`,
+   `subagent_type`, and the collapsed `prompt_excerpt` pair with them; a spawn
+   with no description still queues.
 10. The queue clears on `UserPromptSubmit`, `Stop`, and `SessionStart`, and is
     bounded at 16 with the oldest dropped first.
-11. `SubagentInfo` JSON without the new keys still decodes.
+11. `SubagentInfo` JSON without any of the optional keys still decodes.
+12. Six agent-scoped `PreToolUse` events leave `tool_call_count == 6` and the last
+    five tool lines in order, with the parent's own tool untouched.
+13. An agent-scoped `PermissionRequest` sets the child's `waiting_message`, leaves
+    the parent's `notification_message` nil, keeps the parent's
+    `waiting_permission` transition, and is cleared by the child's next tool call.
+    A parent-scoped `PermissionRequest` still writes the parent's message. An
+    agent-scoped `Notification` never sets `waiting_message`, does not clear the
+    parent's running tool, and an agent-scoped `idle_prompt` does not clear the
+    parent's message. A multi-line Bash command collapses to one `recent_tools`
+    entry while `last_tool_detail` stays raw.
 
 Tree and projection (`SubworkerTreeTests`, `SessionManagerVisibilityTests`):
 
-12. cc root with in-process subagents + a delegated Codex child + that Codex
+14. cc root with in-process subagents + a delegated Codex child + that Codex
     thread's own Claude grandchild; codex root with a Claude child.
-13. Unattributed grouping, exact-match rejection, cycle safety, unique node ids,
+15. Unattributed grouping, exact-match rejection, cycle safety, unique node ids,
     childless roots omitted, depth cap at 3.
-14. A hidden delegated active record is published in `delegatedSessionRecords`
+16. Group summary counts are exclusive and total the row count, the line is
+    omitted when everything is running, and a waiting delegated record counts as
+    waiting and never as stale.
+17. A hidden delegated active record is published in `delegatedSessionRecords`
     and is absent from `userSessions`, `StatusCounts`, and
     `DisplayStateWriter.snapshot`; a finished delegated record is in neither.
 
 Shim (`scripts/test-cc-hook-shim.sh`, wired into `make contract`):
 
-15. A payload with `\n` inside a JSON string reaches a stub `cctop-hook` byte for
+18. A payload with `\n` inside a JSON string reaches a stub `cctop-hook` byte for
     byte under a throwaway `HOME`, and the negative control proves the old `echo`
     form still corrupts it.
 
@@ -211,5 +265,7 @@ relying only on the panel:
 - A directly started session of either harness: `is_subagent == false`,
   `hidden == false`, and both parent fields absent.
 - A parent running subagents: its `active_subagents` entries carry their own
-  `last_tool`/`last_tool_detail`, while the parent's stay on the parent's own
-  tool.
+  `last_tool`/`last_tool_detail`, `tool_call_count`, and `recent_tools`, while the
+  parent's stay on the parent's own tool. A subagent blocked on a permission
+  prompt carries `waiting_message` while the parent's `notification_message`
+  stays nil.

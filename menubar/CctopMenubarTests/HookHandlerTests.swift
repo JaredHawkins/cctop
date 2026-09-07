@@ -2061,7 +2061,8 @@ final class HookHandlerTests: XCTestCase {
             )
         }
         XCTAssertEqual(
-            try loadSession().pendingSubagentDescriptions, ["Check the shim", "Review the tree"]
+            try loadSession().pendingSubagentSpawns?.map(\.description),
+            ["Check the shim", "Review the tree"]
         )
 
         for agentId in ["agent-1", "agent-2"] {
@@ -2078,7 +2079,7 @@ final class HookHandlerTests: XCTestCase {
 
         let session = try loadSession()
         XCTAssertEqual(session.activeSubagents?.map(\.description), ["Check the shim", "Review the tree"])
-        XCTAssertNil(session.pendingSubagentDescriptions)
+        XCTAssertNil(session.pendingSubagentSpawns)
     }
 
     func testLegacyTaskToolAlsoQueuesADescription() throws {
@@ -2102,7 +2103,7 @@ final class HookHandlerTests: XCTestCase {
             hookName: "PreToolUse"
         )
 
-        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+        XCTAssertNil(try loadSession().pendingSubagentSpawns)
     }
 
     func testPendingDescriptionsClearOnPromptStopAndSessionStart() throws {
@@ -2111,26 +2112,26 @@ final class HookHandlerTests: XCTestCase {
                 preToolUse(toolName: "Agent", detailKey: "description", detailValue: "Stale label"),
                 hookName: "PreToolUse"
             )
-            XCTAssertEqual(try loadSession().pendingSubagentDescriptions, ["Stale label"])
+            XCTAssertEqual(try loadSession().pendingSubagentSpawns?.map(\.description), ["Stale label"])
         }
 
         try handleFixture("SessionStart")
         try queueOne()
         try handleFixture("UserPromptSubmit")
-        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+        XCTAssertNil(try loadSession().pendingSubagentSpawns)
 
         try queueOne()
         try handleFixture("Stop")
-        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+        XCTAssertNil(try loadSession().pendingSubagentSpawns)
 
         try queueOne()
         try handleFixture("SessionStart")
-        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+        XCTAssertNil(try loadSession().pendingSubagentSpawns)
     }
 
     func testPendingDescriptionQueueIsBounded() throws {
         try handleFixture("SessionStart")
-        let overflow = HookHandler.maxPendingSubagentDescriptions + 3
+        let overflow = HookHandler.maxPendingSubagentSpawns + 3
         for index in 0..<overflow {
             try handleHook(
                 preToolUse(toolName: "Agent", detailKey: "description", detailValue: "spawn-\(index)"),
@@ -2138,10 +2139,204 @@ final class HookHandlerTests: XCTestCase {
             )
         }
 
-        let queue = try XCTUnwrap(try loadSession().pendingSubagentDescriptions)
-        XCTAssertEqual(queue.count, HookHandler.maxPendingSubagentDescriptions)
+        let queue = try XCTUnwrap(try loadSession().pendingSubagentSpawns).map(\.description)
+        XCTAssertEqual(queue.count, HookHandler.maxPendingSubagentSpawns)
         XCTAssertEqual(queue.first, "spawn-3", "the oldest unpaired labels are dropped first")
         XCTAssertEqual(queue.last, "spawn-\(overflow - 1)")
+    }
+
+    func testSpawnMetadataPairsModelSubagentTypeAndPromptExcerpt() throws {
+        try handleFixture("SessionStart")
+        try handleHook("""
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "PreToolUse",
+          "tool_name": "Agent",
+          "tool_input": {
+            "description": "Check the shim",
+            "model": "sonnet",
+            "subagent_type": "Explore",
+            "prompt": "first line\\nsecond   line\\n\\n  third line"
+          }
+        }
+        """, hookName: "PreToolUse")
+
+        let queued = try XCTUnwrap(try loadSession().pendingSubagentSpawns?.first)
+        XCTAssertEqual(queued.model, "sonnet")
+        XCTAssertEqual(queued.subagentType, "Explore")
+        XCTAssertEqual(queued.promptExcerpt, "first line second line third line")
+
+        try handleFixture("SubagentStart")
+        let child = try XCTUnwrap(try loadSession().activeSubagents?.first)
+        XCTAssertEqual(child.description, "Check the shim")
+        XCTAssertEqual(child.model, "sonnet")
+        XCTAssertEqual(child.subagentType, "Explore")
+        XCTAssertEqual(child.promptExcerpt, "first line second line third line")
+        XCTAssertNil(try loadSession().pendingSubagentSpawns)
+    }
+
+    func testSpawnPromptExcerptIsTruncatedToItsCap() throws {
+        let long = String(repeating: "a", count: HookHandler.subagentPromptExcerptLength + 50)
+        let excerpt = HookHandler.subagentPromptExcerpt(long)
+        XCTAssertEqual(excerpt.count, HookHandler.subagentPromptExcerptLength)
+        XCTAssertEqual(HookHandler.subagentPromptExcerpt("  spaced \n out  "), "spaced out")
+    }
+
+    func testSpawnQueuesEvenWithoutADescription() throws {
+        try handleFixture("SessionStart")
+        try handleHook(
+            preToolUse(toolName: "Agent", detailKey: "subagent_type", detailValue: "Explore"),
+            hookName: "PreToolUse"
+        )
+        try handleFixture("SubagentStart")
+
+        let child = try XCTUnwrap(try loadSession().activeSubagents?.first)
+        XCTAssertNil(child.description)
+        XCTAssertEqual(child.subagentType, "Explore")
+    }
+
+    func testAgentScopedToolCallsCountAndFillTheRecentToolsRingBuffer() throws {
+        try handleFixture("SubagentStart")
+        for index in 0..<6 {
+            try handleHook(
+                preToolUse(
+                    agentId: "agent-abc-123", toolName: "Read",
+                    detailKey: "file_path", detailValue: "/file-\(index).swift"
+                ),
+                hookName: "PreToolUse"
+            )
+        }
+
+        let child = try XCTUnwrap(try loadSession().activeSubagents?.first)
+        XCTAssertEqual(child.toolCallCount, 6)
+        XCTAssertEqual(
+            child.recentTools,
+            (1...5).map { "Read: /file-\($0).swift" },
+            "newest last, oldest dropped"
+        )
+        XCTAssertEqual(child.recentTools?.count, SubagentInfo.recentToolsLimit)
+        XCTAssertNil(try loadSession().lastTool, "the parent's tool stays untouched")
+    }
+
+    func testAgentScopedPermissionRequestWaitsOnTheChildNotTheParent() throws {
+        try handleFixture("SubagentStart")
+        try handleHook("""
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "PermissionRequest",
+          "tool_name": "Bash",
+          "tool_input": {"command": "make swift-test"},
+          "agent_id": "agent-abc-123"
+        }
+        """, hookName: "PermissionRequest")
+
+        var session = try loadSession()
+        XCTAssertNil(session.notificationMessage, "the parent is not the one waiting")
+        XCTAssertEqual(session.status, .waitingPermission, "the parent's transition is unchanged")
+        XCTAssertEqual(
+            session.activeSubagents?.first?.waitingMessage, "Bash: make swift-test"
+        )
+
+        // The subagent's next tool call proves it was unblocked.
+        try handleHook(
+            preToolUse(
+                agentId: "agent-abc-123", toolName: "Read",
+                detailKey: "file_path", detailValue: "/child.swift"
+            ),
+            hookName: "PreToolUse"
+        )
+        session = try loadSession()
+        XCTAssertNil(session.activeSubagents?.first?.waitingMessage)
+        XCTAssertNil(session.notificationMessage)
+    }
+
+    func testParentScopedPermissionRequestStillWritesTheParentMessage() throws {
+        try handleFixture("PermissionRequest")
+        let session = try loadSession()
+        XCTAssertNotNil(session.notificationMessage)
+        XCTAssertTrue(session.activeSubagents?.isEmpty ?? true)
+    }
+
+    /// A subagent notification proves the child is alive and nothing more. Types such as
+    /// auth_success or agent_completed are not a block, so only PermissionRequest may set
+    /// `waitingMessage` — otherwise the row would show a permission dot and count as
+    /// "waiting" in the group summary until the subagent's next tool call.
+    func testAgentScopedNotificationOnlyAdvancesTheChildAndNeverMarksItWaiting() throws {
+        try handleHook(
+            preToolUse(toolName: "Read", detailKey: "file_path", detailValue: "/parent.swift"),
+            hookName: "PreToolUse"
+        )
+        try handleFixture("SubagentStart")
+        try handleHook("""
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "Notification",
+          "notification_type": "auth_success",
+          "message": "Logged in",
+          "agent_id": "agent-abc-123"
+        }
+        """, hookName: "Notification")
+
+        let session = try loadSession()
+        XCTAssertEqual(session.lastTool, "Read")
+        XCTAssertEqual(session.lastToolDetail, "/parent.swift")
+        XCTAssertNil(session.notificationMessage)
+        let child = try XCTUnwrap(session.activeSubagents?.first)
+        XCTAssertNil(child.waitingMessage, "a non-permission notification is not a block")
+        XCTAssertNotNil(child.lastActivity)
+        XCTAssertNil(child.toolCallCount, "a notification is not a tool call")
+    }
+
+    func testAgentScopedIdleNotificationDoesNotClearTheParentsMessage() throws {
+        try handleHook("""
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "PermissionRequest",
+          "tool_name": "Bash",
+          "tool_input": {"command": "make lint"}
+        }
+        """, hookName: "PermissionRequest")
+        try handleFixture("SubagentStart")
+        try handleHook("""
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "Notification",
+          "notification_type": "idle_prompt",
+          "agent_id": "agent-abc-123"
+        }
+        """, hookName: "Notification")
+
+        XCTAssertEqual(try loadSession().notificationMessage, "Bash: make lint")
+    }
+
+    func testRecentToolsCollapseAMultilineCommandOntoOneEntry() throws {
+        try handleFixture("SubagentStart")
+        try handleHook("""
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "PreToolUse",
+          "tool_name": "Bash",
+          "tool_input": {"command": "set -e\\ncd build\\n\\n  make lint"},
+          "agent_id": "agent-abc-123"
+        }
+        """, hookName: "PreToolUse")
+
+        let child = try XCTUnwrap(try loadSession().activeSubagents?.first)
+        XCTAssertEqual(child.recentTools, ["Bash: set -e cd build make lint"])
+        XCTAssertFalse(
+            child.recentTools?.first?.contains("\n") ?? true,
+            "a recent-tools entry must stay one line"
+        )
+        XCTAssertEqual(
+            child.lastToolDetail, "set -e\ncd build\n\n  make lint",
+            "the raw detail is preserved"
+        )
     }
 
     func testSubagentInfoWithoutTheNewKeysStillDecodes() throws {
@@ -2154,6 +2349,13 @@ final class HookHandlerTests: XCTestCase {
         XCTAssertNil(info.lastTool)
         XCTAssertNil(info.lastToolDetail)
         XCTAssertNil(info.lastActivity)
+        XCTAssertNil(info.model)
+        XCTAssertNil(info.subagentType)
+        XCTAssertNil(info.promptExcerpt)
+        XCTAssertNil(info.toolCallCount)
+        XCTAssertNil(info.recentTools)
+        XCTAssertNil(info.waitingMessage)
+        XCTAssertFalse(info.hasSpawnMetadata)
         XCTAssertEqual(info.effectiveActivity, info.startedAt)
     }
 

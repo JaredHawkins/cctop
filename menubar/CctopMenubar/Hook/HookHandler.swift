@@ -102,7 +102,7 @@ enum HookHandler {
         data.notificationMessage = nil
         // Prompt boundaries end the turn that queued these; an unpaired description
         // must never attach to a subagent spawned by a later turn.
-        data.pendingSubagentDescriptions = nil
+        data.pendingSubagentSpawns = nil
     }
 
     private static func clearRunningToolState(_ data: inout SessionData) {
@@ -185,14 +185,7 @@ enum HookHandler {
             applyPreToolUseSideEffects(&data, input: input)
 
         case .permissionRequest:
-            let msg = input.title ?? input.toolName.map { tool in
-                let detail = extractToolDetail(toolName: tool, toolInput: input.toolInput)
-                if let detail { return "\(tool): \(detail)" }
-                return tool
-            }
-            data.notificationMessage = msg
-            // Keep lastTool/lastToolDetail from the preceding PreToolUse — when the
-            // delayed Notification transitions to .working, the card can show what tool is running.
+            applyPermissionRequestSideEffects(&data, input: input)
 
         case .notificationIdle, .notificationOther:
             applyNotificationEvent(event: event, data: &data, input: input)
@@ -209,15 +202,6 @@ enum HookHandler {
         // notificationPermission: PermissionRequest already handles side effects; Notification fires ~6s later.
         case .notificationPermission, .postCompact, .preCompact, .sessionEnd, .unknown:
             break
-        }
-    }
-
-    private static func applyNotificationEvent(event: HookEvent, data: inout SessionData, input: HookInput) {
-        clearRunningToolState(&data)
-        if event == .notificationIdle && input.notificationType == "idle_prompt" {
-            data.notificationMessage = nil
-        } else if let message = input.message {
-            data.notificationMessage = message
         }
     }
 
@@ -384,6 +368,52 @@ enum HookHandler {
 // MARK: - Subagent attribution
 
 extension HookHandler {
+    /// A permission prompt belongs to whoever raised it. An agent-scoped request blocks that
+    /// subagent, not the parent, so it must not overwrite the parent's own
+    /// `notificationMessage`. The parent's status transition is unchanged either way.
+    private static func applyPermissionRequestSideEffects(_ data: inout SessionData, input: HookInput) {
+        let message = input.title ?? input.toolName.map { tool in
+            let detail = extractToolDetail(toolName: tool, toolInput: input.toolInput)
+            if let detail { return "\(tool): \(detail)" }
+            return tool
+        }
+        guard input.agentId == nil else {
+            applySubagentWaiting(&data, input: input, message: message)
+            return
+        }
+        data.notificationMessage = message
+        // Keep lastTool/lastToolDetail from the preceding PreToolUse — when the
+        // delayed Notification transitions to .working, the card can show what tool is running.
+    }
+
+    private static func applyNotificationEvent(event: HookEvent, data: inout SessionData, input: HookInput) {
+        guard input.agentId == nil else {
+            // Same rule as PermissionRequest: never clear the parent's running tool or rewrite
+            // its message because a child reported something. The event only proves the child
+            // is alive — most notification types (auth_success, agent_completed, ...) are not a
+            // block, and only PermissionRequest can say what a subagent is actually waiting on.
+            applySubagentActivity(&data, input: input, updatesTool: false)
+            return
+        }
+        clearRunningToolState(&data)
+        if event == .notificationIdle && input.notificationType == "idle_prompt" {
+            data.notificationMessage = nil
+        } else if let message = input.message {
+            data.notificationMessage = message
+        }
+    }
+
+    /// Records what a subagent is blocked on, creating its entry when the permission request
+    /// is the first thing seen from that agent.
+    private static func applySubagentWaiting(
+        _ data: inout SessionData, input: HookInput, message: String?
+    ) {
+        applySubagentActivity(&data, input: input, updatesTool: false)
+        guard let agentId = input.agentId,
+              let index = data.activeSubagents?.firstIndex(where: { $0.agentId == agentId }) else { return }
+        data.activeSubagents?[index].waitingMessage = message
+    }
+
     /// `agent_id` is present on ANY hook fired from inside a subagent, so a parent-scoped
     /// event is exactly the one where it is absent. Only those may touch the parent's tool.
     private static func applyPreToolUseSideEffects(_ data: inout SessionData, input: HookInput) {
@@ -395,7 +425,7 @@ extension HookHandler {
             data.lastTool = toolName
             data.lastToolDetail = extractToolDetail(toolName: toolName, toolInput: input.toolInput)
         }
-        enqueueSubagentDescription(&data, input: input)
+        enqueueSubagentSpawn(&data, input: input)
     }
 
     /// A tool result only advances the reporting subagent's activity; it never rewrites the
@@ -408,10 +438,14 @@ extension HookHandler {
         data.notificationMessage = error
     }
 
-    /// Upper bound on unpaired `Agent`/`Task` descriptions. The queue only has to survive
-    /// the gap between one parent PreToolUse and its SubagentStart, so a small cap is enough
-    /// to keep a runaway parent from growing the session file.
-    static let maxPendingSubagentDescriptions = 16
+    /// Upper bound on unpaired `Agent`/`Task` spawns. The queue only has to survive the gap
+    /// between one parent PreToolUse and its SubagentStart, so a small cap is enough to keep
+    /// a runaway parent from growing the session file.
+    static let maxPendingSubagentSpawns = 16
+
+    /// Length cap for a stored spawn prompt. Long enough to recognize the task, short enough
+    /// that the session file stays small when several subagents run at once.
+    static let subagentPromptExcerptLength = 400
 
     private static func applySubagentEvent(event: HookEvent, data: inout SessionData, input: HookInput) {
         switch event {
@@ -419,18 +453,15 @@ extension HookHandler {
             guard let agentId = input.agentId, let agentType = input.agentType else { return }
             if data.activeSubagents == nil { data.activeSubagents = [] }
             // An agent-scoped PreToolUse can beat SubagentStart to the file, so an entry may
-            // already exist. Either way exactly one queued description is consumed.
+            // already exist. Either way exactly one queued spawn is consumed.
             if let index = data.activeSubagents!.firstIndex(where: { $0.agentId == agentId }) {
-                if data.activeSubagents![index].description == nil {
-                    data.activeSubagents![index].description = dequeueSubagentDescription(&data)
+                if !data.activeSubagents![index].hasSpawnMetadata {
+                    data.activeSubagents![index].apply(spawn: dequeueSubagentSpawn(&data))
                 }
             } else {
-                data.activeSubagents!.append(
-                    SubagentInfo(
-                        agentId: agentId, agentType: agentType, startedAt: Date(),
-                        description: dequeueSubagentDescription(&data)
-                    )
-                )
+                var info = SubagentInfo(agentId: agentId, agentType: agentType, startedAt: Date())
+                info.apply(spawn: dequeueSubagentSpawn(&data))
+                data.activeSubagents!.append(info)
             }
         case .subagentStop:
             if let agentId = input.agentId {
@@ -443,23 +474,42 @@ extension HookHandler {
 
     /// `SubagentStart` carries only `agent_id`/`agent_type`. The parent's own PreToolUse for
     /// the spawning `Agent` (legacy `Task`) tool fires just before it and is the only place
-    /// the task label appears, so the two are paired FIFO.
-    private static func enqueueSubagentDescription(_ data: inout SessionData, input: HookInput) {
-        guard let toolName = input.toolName, toolName == "Agent" || toolName == "Task",
-              let description = input.toolInput?["description"], !description.isEmpty else { return }
-        var queue = data.pendingSubagentDescriptions ?? []
-        queue.append(description)
-        if queue.count > maxPendingSubagentDescriptions {
-            queue.removeFirst(queue.count - maxPendingSubagentDescriptions)
+    /// the task label, model, subagent type, and prompt appear, so the two are paired FIFO.
+    private static func enqueueSubagentSpawn(_ data: inout SessionData, input: HookInput) {
+        guard let toolName = input.toolName, toolName == "Agent" || toolName == "Task" else { return }
+        let spawn = PendingSubagentSpawn(
+            description: nonEmptyToolInput(input, "description"),
+            model: nonEmptyToolInput(input, "model"),
+            subagentType: nonEmptyToolInput(input, "subagent_type"),
+            promptExcerpt: nonEmptyToolInput(input, "prompt").map(subagentPromptExcerpt)
+        )
+        guard !spawn.isEmpty else { return }
+        var queue = data.pendingSubagentSpawns ?? []
+        queue.append(spawn)
+        if queue.count > maxPendingSubagentSpawns {
+            queue.removeFirst(queue.count - maxPendingSubagentSpawns)
         }
-        data.pendingSubagentDescriptions = queue
+        data.pendingSubagentSpawns = queue
     }
 
-    private static func dequeueSubagentDescription(_ data: inout SessionData) -> String? {
-        guard var queue = data.pendingSubagentDescriptions, !queue.isEmpty else { return nil }
-        let description = queue.removeFirst()
-        data.pendingSubagentDescriptions = queue.isEmpty ? nil : queue
-        return description
+    private static func dequeueSubagentSpawn(_ data: inout SessionData) -> PendingSubagentSpawn? {
+        guard var queue = data.pendingSubagentSpawns, !queue.isEmpty else { return nil }
+        let spawn = queue.removeFirst()
+        data.pendingSubagentSpawns = queue.isEmpty ? nil : queue
+        return spawn
+    }
+
+    private static func nonEmptyToolInput(_ input: HookInput, _ key: String) -> String? {
+        guard let value = input.toolInput?[key], !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// Collapses runs of whitespace so a multi-line prompt renders as readable prose, then
+    /// truncates. `String.prefix` is Character-based, so grapheme clusters stay intact.
+    static func subagentPromptExcerpt(_ prompt: String) -> String {
+        let collapsed = prompt.whitespaceCollapsed
+        guard collapsed.count > subagentPromptExcerptLength else { return collapsed }
+        return String(collapsed.prefix(subagentPromptExcerptLength))
     }
 
     /// Attribute an agent-scoped tool event to the subagent that ran it instead of the
@@ -479,16 +529,18 @@ extension HookHandler {
                 startedAt: now, lastActivity: now
             )
             if updatesTool, let toolName = input.toolName {
-                info.lastTool = toolName
-                info.lastToolDetail = extractToolDetail(toolName: toolName, toolInput: input.toolInput)
+                info.recordToolCall(
+                    tool: toolName,
+                    detail: extractToolDetail(toolName: toolName, toolInput: input.toolInput)
+                )
             }
             data.activeSubagents!.append(info)
             return
         }
         if updatesTool, let toolName = input.toolName {
-            data.activeSubagents![index].lastTool = toolName
-            data.activeSubagents![index].lastToolDetail = extractToolDetail(
-                toolName: toolName, toolInput: input.toolInput
+            data.activeSubagents![index].recordToolCall(
+                tool: toolName,
+                detail: extractToolDetail(toolName: toolName, toolInput: input.toolInput)
             )
         }
         data.activeSubagents![index].lastActivity = now
