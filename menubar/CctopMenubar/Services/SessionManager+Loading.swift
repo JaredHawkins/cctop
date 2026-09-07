@@ -123,6 +123,25 @@ extension SessionManager {
         return records
     }
 
+    /// Delegated (hidden, `is_subagent`) records that are still active or dormant, published
+    /// only so the Agents view can show sub-workers under the session that spawned them.
+    /// Deliberately outside `userSessions`: it feeds no count, notification, Navigate slot,
+    /// notch/menu-bar indicator, Recent row, or Stream Deck display state.
+    ///
+    /// Hidden records already carry a derived lifecycle from `buildCandidates`, so they are
+    /// classified by exactly the same policy as visible ones; finished ones are dropped here
+    /// just as they are for display.
+    nonisolated static func delegatedRecords(
+        in classification: SessionClassificationSnapshot
+    ) -> [SessionRecord] {
+        let delegated = classification.records.compactMap { record -> SessionRecord? in
+            guard record.candidate.data.isSubagentSession,
+                  record.candidate.lifecycleRank != SessionLifecycle.finished.rawValue else { return nil }
+            return record.candidate
+        }
+        return SessionIdentityPolicy.dedupedCandidatesByStableKey(delegated)
+    }
+
     func identifiedPublishableCandidates(
         winners: [SessionRecord],
         knownRecords: [(url: URL, session: SessionData)]

@@ -332,6 +332,7 @@ struct PanelContentView: View {
             userSessions: sessionManager.userSessions,
             acknowledgedSessionIDs: sessionManager.acknowledgedSessionIDs,
             droppedUserSessions: sessionManager.droppedUserSessions,
+            delegatedSessionRecords: sessionManager.delegatedSessionRecords,
             recentProjects: historyManager.recentProjects,
             recentResumeTargets: sessionManager.recentResumeTargets,
             cleanupCandidates: cleanupManager.candidates,

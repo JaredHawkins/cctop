@@ -107,7 +107,7 @@ All supported agent integrations call `cctop-hook`. Do not add a second session-
 
 | Agent or host | Source and file key | Design rule |
 | --- | --- | --- |
-| Claude Code | `source: "cc"`, PID-keyed file | Process generation controls CLI liveness. Finished sessions enter Recent Projects before removal. |
+| Claude Code | `source: "cc"`, PID-keyed file | Process generation controls CLI liveness. Finished sessions enter Recent Projects before removal. Claude hooks inheriting Codex's `CODEX_THREAD_ID` are delegated and hidden. |
 | Claude Desktop | `source: "cc"`, PID-keyed file | Trust `com.anthropic.claudefordesktop` only with `cc`. Use desktop archive and retention evidence. |
 | Codex CLI and Desktop | `source: "codex"`, session-ID-keyed file | Use the shared Codex lifecycle. Persisted desktop bundle metadata is not host evidence. Codex hooks inheriting Claude Code's child-session marker are delegated and hidden. |
 | opencode | `source: "opencode"`, PID-keyed file | Explicit source wins over inherited desktop bundle metadata. Process liveness controls lifecycle. |

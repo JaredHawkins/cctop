@@ -8,6 +8,9 @@ struct SessionCardView: View {
     var isSelected = false
     var relativeTimeNow = Date()
     var presentationStatusLabel: String?
+    /// Supplied by the panel so the subagent count can open the Agents view. Nil leaves
+    /// the badge as inert metadata (previews, snapshots).
+    var onShowAgents: (() -> Void)?
 
     @State private var isHovered = false
     @Environment(\.colorScheme) private var colorScheme
@@ -48,16 +51,30 @@ struct SessionCardView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if session.subagentCount > 0 {
-                let count = session.subagentCount
-                Text("\(count) agent\(count == 1 ? "" : "s")")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.agentBadge)
+                subagentBadge(count: session.subagentCount)
             }
 
             statusLabel
 
         }
         .frame(height: 18)
+    }
+
+    /// Same 10 px purple metadata as before; it just becomes clickable when the panel
+    /// supplies a destination. `.plain` keeps the button chrome-free.
+    @ViewBuilder
+    private func subagentBadge(count: Int) -> some View {
+        let label = Text("\(count) agent\(count == 1 ? "" : "s")")
+            .font(.system(size: 10))
+            .foregroundStyle(Color.agentBadge)
+        if let onShowAgents {
+            Button(action: onShowAgents) { label }
+                .buttonStyle(.plain)
+                .help("Show agents")
+                .accessibilityLabel("Show \(count) agent\(count == 1 ? "" : "s")")
+        } else {
+            label
+        }
     }
 
     private var metaRow: some View {

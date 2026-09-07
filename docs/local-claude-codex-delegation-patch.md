@@ -2,11 +2,14 @@
 
 ## Purpose
 
-This local patch keeps cctop focused on Codex sessions that Jared starts
-explicitly. Codex Desktop sessions and Codex CLI sessions started directly in a
-terminal such as Ghostty remain visible. Codex processes launched by Claude Code
-for delegated work are persisted as hidden subagent records and are excluded
-from cctop's published session list.
+This local patch keeps cctop focused on sessions that Jared starts explicitly.
+Codex Desktop sessions and Codex CLI sessions started directly in a terminal such
+as Ghostty remain visible. Delegated runs in either direction — Codex processes
+launched by Claude Code, and Claude sessions launched by a Codex thread — are
+persisted as hidden subagent records, linked back to the session that spawned
+them, and excluded from cctop's published session list. The Agents view built on
+that linkage is documented in
+[local-agents-view-patch.md](local-agents-view-patch.md).
 
 The patch lives on the local branch `codex/filter-claude-codex-subagents`. It is
 not an upstream cctop behavior unless that branch is later published and merged.
@@ -18,28 +21,53 @@ stack are documented in `docs/local-custom-build-install-runbook.md`.
 
 ## Detection contract
 
-Claude Code adds the `CLAUDE_CODE_CHILD_SESSION` environment key to delegated
-child processes. The key can have an empty value, so detection must test for key
-presence rather than a non-empty string.
+Delegation is read from the hook process environment, in both directions. Each
+rule is scoped to the **opposite** harness, so an inherited key can never hide the
+session that owns it.
 
-The marker is authoritative only when the hook resolves the harness as `codex`.
-This source guard prevents the same inherited key from hiding the owning Claude
-Code session. Terminal metadata is deliberately ignored for delegation: a Codex
-child can inherit `TERM_PROGRAM=ghostty` and Ghostty's bundle identifier from its
-Claude parent even though the user did not start that Codex session directly.
+| Hook harness | Environment evidence | Result | Parent persisted |
+|---|---|---|---|
+| `codex` | `CLAUDE_CODE_CHILD_SESSION` key present (value may be empty) | delegated, hidden | `parent_harness = "cc"`, `parent_harness_session_id = $CLAUDE_CODE_SESSION_ID`, when that value is non-empty |
+| `cc` | `CODEX_THREAD_ID` present and non-empty | delegated, hidden | `parent_harness = "codex"`, `parent_harness_session_id = $CODEX_THREAD_ID` |
+| any | payload `is_subagent: true` | delegated | none, unless an environment rule also matched |
 
-The environment value is neither read nor persisted. Only the presence of the
-key is used.
+- Claude Code adds `CLAUDE_CODE_CHILD_SESSION` to the child processes it launches.
+  The key can have an empty value, so detection tests for key presence rather than
+  a non-empty string. Its *value* is still neither read nor persisted; the parent
+  reference comes from the separate `CLAUDE_CODE_SESSION_ID` key.
+- Claude Code exports `CLAUDE_CODE_SESSION_ID` to its own children, so for a `cc`
+  hook that value is the session's own reference and is never parent evidence.
+  Only the `codex` rule reads it.
+- Codex exports `CODEX_THREAD_ID` (plus `CODEX_SANDBOX`,
+  `CODEX_SANDBOX_NETWORK_DISABLED`, `CODEX_CI`) to the processes its exec tool
+  launches. `CODEX_THREAD_ID` is the same reference Codex sends to `cctop-hook` as
+  `session_id`, so it matches a Codex record's `harness_session_id` byte for byte.
+- Terminal metadata is deliberately ignored for delegation in both directions: a
+  child inherits `TERM_PROGRAM=ghostty` and Ghostty's bundle identifier from its
+  parent even though the user did not start it directly.
+- Parent fields are written only when the environment proves the link, and a later
+  event that lacks the evidence never clears them.
+- Environment-proved parent linkage is first-hand provenance and outranks a
+  client's own later self-classification. Codex's thread database calls a
+  Claude-launched `exec` thread an interactive `cli`/`vscode` root with no spawn
+  edge, so the sticky-classification repair must refuse any record carrying parent
+  fields; otherwise the delegate is unhidden back into the published projection.
 
 ## Implementation map
 
-- `HookInput.hasDelegatedSessionEvidence(environment:)` combines the existing
-  explicit `is_subagent` payload flag with the Codex-only Claude child marker.
-- `HookHandler.handleHook` reads the current hook environment and stamps
-  `is_subagent = true` before the existing auto-hide policy runs.
-- `HookHandler.handleSessionEnd` applies the same classification during its
-  locked final write. This lets a marked final event hide a record written by an
-  older hook.
+- `HookInput.delegatedSessionEvidence(environment:)` returns the evidence: the
+  matched parent harness and reference, or an unattributed result for an explicit
+  `is_subagent` payload. `hasDelegatedSessionEvidence(environment:)` is a thin
+  boolean wrapper over it.
+- `HookHandler.handleHook` reads the current hook environment, stamps
+  `is_subagent = true`, and applies `parent_harness` /
+  `parent_harness_session_id` before the existing auto-hide policy runs.
+- `HookHandler.handleSessionEnd` applies the same classification and linkage
+  during its locked final write. This lets a marked final event hide a record
+  written by an older hook.
+- `SessionData.hasDelegationParentEvidence` is the guard consulted by
+  `SessionManager.repairStickyCodexDelegationState` (pre-lock filter) and
+  `repairedCodexInteractiveRootSessionSnapshot` (re-checked under the lock).
 - `SessionData.shouldAutoHide` remains the canonical persistence policy. No
   second display-only filter or parallel session-state path is introduced.
 
@@ -57,18 +85,29 @@ reapplying the patch:
 1. A Codex hook with an empty `CLAUDE_CODE_CHILD_SESSION` value is delegated.
 2. A Claude-launched Codex session with inherited Ghostty metadata is hidden.
 3. Direct Codex Desktop and Ghostty sessions without the marker stay visible.
-4. The marker does not hide a `source: "cc"` session.
+4. The marker alone does not hide a `source: "cc"` session.
 5. A marked `SessionEnd` hides and ends an existing Codex record atomically.
 6. The legacy `source: "codex"` fallback and current `harness_name: "codex"`
    resolution both retain their existing compatibility behavior.
+7. A `cc` hook with a non-empty `CODEX_THREAD_ID` is hidden and stamped with the
+   codex parent.
+8. A `cc` hook without it — absent or empty, even alongside
+   `CLAUDE_CODE_SESSION_ID` — stays visible and unlinked.
+9. A `codex` hook with the Claude markers is stamped with the `cc` parent; the
+   child marker alone still delegates but records no parent.
+10. Parent fields survive a later event that carries no environment evidence,
+    including `SessionEnd`.
+11. Sticky-classification repair refuses a hidden `is_subagent` Codex record that
+    carries parent fields, while a record without them is still repaired.
 
 ## Upgrade and reapplication checklist
 
 After updating cctop from upstream:
 
-1. Search upstream for `CLAUDE_CODE_CHILD_SESSION` and
-   `hasDelegatedSessionEvidence`. If equivalent source-scoped behavior has landed,
-   prefer the upstream implementation and retain only missing coverage or docs.
+1. Search upstream for `CLAUDE_CODE_CHILD_SESSION`, `CODEX_THREAD_ID`,
+   `delegatedSessionEvidence`, and `hasDelegatedSessionEvidence`. If equivalent
+   source-scoped behavior has landed, prefer the upstream implementation and
+   retain only missing coverage or docs.
 2. Confirm `plugins/codex/cctop-shim.sh` still `exec`s `cctop-hook` without
    clearing the inherited environment.
 3. Confirm `HookInput.resolvedHarnessName` still resolves both `harness_name`
@@ -92,7 +131,11 @@ For live behavior verification, inspect the resulting session JSON rather than
 relying only on the panel:
 
 - Claude-launched Codex: `source == "codex"`, `is_subagent == true`, and
-  `hidden == true`, even if terminal metadata says Ghostty.
+  `hidden == true`, even if terminal metadata says Ghostty; plus
+  `parent_harness == "cc"` when the parent exported its session id.
+- Codex-launched Claude: `source == "cc"`, `is_subagent == true`,
+  `hidden == true`, `parent_harness == "codex"`, and `parent_harness_session_id`
+  equal to the spawning thread's `harness_session_id`.
 - Direct Ghostty or Codex Desktop: `source == "codex"`,
   `is_subagent == false`, and `hidden == false` when no independent auto-hide
   reason applies.

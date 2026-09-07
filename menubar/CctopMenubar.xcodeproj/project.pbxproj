@@ -25,6 +25,7 @@
 		PVS000010000000000000001 /* PopupView+Sessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVS000020000000000000001 /* PopupView+Sessions.swift */; };
 		PVH000010000000000000001 /* PopupViewHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVH000020000000000000001 /* PopupViewHelpers.swift */; };
 		PVR000010000000000000001 /* PopupView+Recent.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVR000020000000000000001 /* PopupView+Recent.swift */; };
+		PVA000010000000000000001 /* PopupView+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = PVA000020000000000000001 /* PopupView+Agents.swift */; };
 		D10000090000000000000001 /* QuitButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1000000A000000000000001 /* QuitButton.swift */; };
 		FTR000010000000000000001 /* FocusTargetResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTR000020000000000000001 /* FocusTargetResolver.swift */; };
 		E10000010000000000000001 /* FocusTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000020000000000000001 /* FocusTerminal.swift */; };
@@ -122,11 +123,13 @@
 		NSC000010000000000000001 /* NotchStatusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = NSC000020000000000000001 /* NotchStatusController.swift */; };
 		STC000010000000000000001 /* StatusColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = STC000020000000000000001 /* StatusColors.swift */; };
 		SDP000010000000000000001 /* SessionDisplayPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = SDP000020000000000000001 /* SessionDisplayPolicy.swift */; };
+		SWT000010000000000000001 /* SubworkerTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWT000020000000000000001 /* SubworkerTree.swift */; };
 		SCN000010000000000000001 /* StatusCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCN000020000000000000001 /* StatusCounts.swift */; };
 		MRT000010000000000000001 /* MenubarIconRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = MRT000020000000000000001 /* MenubarIconRendererTests.swift */; };
 		SCT000010000000000000001 /* StatusCountsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCT000020000000000000001 /* StatusCountsTests.swift */; };
 		HVT000010000000000000001 /* StatusCountsUserSessionInitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = HVT000020000000000000001 /* StatusCountsUserSessionInitTests.swift */; };
 		SDPT00010000000000000001 /* SessionDisplayPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SDPT00020000000000000001 /* SessionDisplayPolicyTests.swift */; };
+		SWTT00010000000000000001 /* SubworkerTreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWTT00020000000000000001 /* SubworkerTreeTests.swift */; };
 		NVT000010000000000000001 /* NotchVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = NVT000020000000000000001 /* NotchVisibilityTests.swift */; };
 		PPO000010000000000000001 /* PanelPositioning.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPO000020000000000000001 /* PanelPositioning.swift */; };
 		PLT000010000000000000001 /* PanelLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PLT000020000000000000001 /* PanelLifecycleTests.swift */; };
@@ -307,6 +310,7 @@
 		NSC000020000000000000001 /* NotchStatusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchStatusController.swift; sourceTree = "<group>"; };
 		STC000020000000000000001 /* StatusColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusColors.swift; sourceTree = "<group>"; };
 		SDP000020000000000000001 /* SessionDisplayPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDisplayPolicy.swift; sourceTree = "<group>"; };
+		SWT000020000000000000001 /* SubworkerTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubworkerTree.swift; sourceTree = "<group>"; };
 		SCN000020000000000000001 /* StatusCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCounts.swift; sourceTree = "<group>"; };
 		SCTRL0020000000000000001 /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
 		NROW00020000000000000001 /* NotificationSettingsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsRow.swift; sourceTree = "<group>"; };
@@ -314,6 +318,7 @@
 		SCT000020000000000000001 /* StatusCountsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCountsTests.swift; sourceTree = "<group>"; };
 		HVT000020000000000000001 /* StatusCountsUserSessionInitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCountsUserSessionInitTests.swift; sourceTree = "<group>"; };
 		SDPT00020000000000000001 /* SessionDisplayPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDisplayPolicyTests.swift; sourceTree = "<group>"; };
+		SWTT00020000000000000001 /* SubworkerTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubworkerTreeTests.swift; sourceTree = "<group>"; };
 		NVT000020000000000000001 /* NotchVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchVisibilityTests.swift; sourceTree = "<group>"; };
 		PPO000020000000000000001 /* PanelPositioning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelPositioning.swift; sourceTree = "<group>"; };
 		PLT000020000000000000001 /* PanelLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycleTests.swift; sourceTree = "<group>"; };
@@ -332,6 +337,7 @@
 		PES000020000000000000001 /* PopupView+EmptyState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PopupView+EmptyState.swift"; sourceTree = "<group>"; };
 		PCU000020000000000000001 /* PopupView+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PopupView+Cleanup.swift"; sourceTree = "<group>"; };
 		PVR000020000000000000001 /* PopupView+Recent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PopupView+Recent.swift"; sourceTree = "<group>"; };
+		PVA000020000000000000001 /* PopupView+Agents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PopupView+Agents.swift"; sourceTree = "<group>"; };
 		WCV000020000000000000001 /* WorktreeCleanupCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCleanupCardView.swift; sourceTree = "<group>"; };
 		WDV000020000000000000001 /* WorktreeCleanupDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCleanupDetailView.swift; sourceTree = "<group>"; };
 		WTV000020000000000000001 /* WorktreeCleanupTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeCleanupTabView.swift; sourceTree = "<group>"; };
@@ -477,6 +483,7 @@
 				EK0000020000000000000001 /* HostApp.swift */,
 				STC000020000000000000001 /* StatusColors.swift */,
 				SDP000020000000000000001 /* SessionDisplayPolicy.swift */,
+				SWT000020000000000000001 /* SubworkerTree.swift */,
 				SCN000020000000000000001 /* StatusCounts.swift */,
 				PPO000020000000000000001 /* PanelPositioning.swift */,
 				WCC000020000000000000001 /* WorktreeCleanupCandidate.swift */,
@@ -498,6 +505,7 @@
 				PES000020000000000000001 /* PopupView+EmptyState.swift */,
 				PCU000020000000000000001 /* PopupView+Cleanup.swift */,
 				PVR000020000000000000001 /* PopupView+Recent.swift */,
+				PVA000020000000000000001 /* PopupView+Agents.swift */,
 				PVH000020000000000000001 /* PopupViewHelpers.swift */,
 				D1000000A000000000000001 /* QuitButton.swift */,
 				J10000020000000000000001 /* SettingsSection.swift */,
@@ -574,6 +582,7 @@
 				SCT000020000000000000001 /* StatusCountsTests.swift */,
 				HVT000020000000000000001 /* StatusCountsUserSessionInitTests.swift */,
 				SDPT00020000000000000001 /* SessionDisplayPolicyTests.swift */,
+				SWTT00020000000000000001 /* SubworkerTreeTests.swift */,
 				NVT000020000000000000001 /* NotchVisibilityTests.swift */,
 				PLT000020000000000000001 /* PanelLifecycleTests.swift */,
 				PPT000020000000000000001 /* PanelPositioningTests.swift */,
@@ -788,6 +797,7 @@
 				NSC000010000000000000001 /* NotchStatusController.swift in Sources */,
 				STC000010000000000000001 /* StatusColors.swift in Sources */,
 				SDP000010000000000000001 /* SessionDisplayPolicy.swift in Sources */,
+				SWT000010000000000000001 /* SubworkerTree.swift in Sources */,
 				SCN000010000000000000001 /* StatusCounts.swift in Sources */,
 				SCTRL0010000000000000001 /* SettingsControls.swift in Sources */,
 				NROW00010000000000000001 /* NotificationSettingsRow.swift in Sources */,
@@ -803,6 +813,7 @@
 				PES000010000000000000001 /* PopupView+EmptyState.swift in Sources */,
 				PCU000010000000000000001 /* PopupView+Cleanup.swift in Sources */,
 				PVR000010000000000000001 /* PopupView+Recent.swift in Sources */,
+				PVA000010000000000000001 /* PopupView+Agents.swift in Sources */,
 				WCV000010000000000000001 /* WorktreeCleanupCardView.swift in Sources */,
 				WDV000010000000000000001 /* WorktreeCleanupDetailView.swift in Sources */,
 				WTV000010000000000000001 /* WorktreeCleanupTabView.swift in Sources */,
@@ -869,6 +880,7 @@
 				SCT000010000000000000001 /* StatusCountsTests.swift in Sources */,
 				HVT000010000000000000001 /* StatusCountsUserSessionInitTests.swift in Sources */,
 				SDPT00010000000000000001 /* SessionDisplayPolicyTests.swift in Sources */,
+				SWTT00010000000000000001 /* SubworkerTreeTests.swift in Sources */,
 				NVT000010000000000000001 /* NotchVisibilityTests.swift in Sources */,
 				PLT000010000000000000001 /* PanelLifecycleTests.swift in Sources */,
 				PPT000010000000000000001 /* PanelPositioningTests.swift in Sources */,

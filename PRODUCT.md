@@ -103,6 +103,16 @@ Session or the next genuine hook event restores it. Keep this action distinct
 from durable **Hide Session**, and do not require destructive-action confirmation
 for it.
 
+### Sub-workers are context, not operational signal
+
+Sessions spawn work beneath them: in-process Claude subagents, Codex runs a
+Claude session delegates, and Claude runs a Codex thread delegates. That work
+answers "what is my session actually doing right now", so it belongs in one
+place users can open on purpose. It is not work the user is expected to steer,
+so it stays out of counts, notifications, Navigate mode, the notch or menu bar
+indicator, and Stream Deck. Show who spawned each sub-worker and what it is
+doing; do not offer acknowledge, drop, or hide on a row the user does not own.
+
 ### Show decision evidence inline
 
 When cctop asks users to decide, the evidence needed for that decision should be

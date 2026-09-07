@@ -76,7 +76,10 @@ enum HookHandler {
                 data.workspaceFile = SessionData.findWorkspaceFile(in: input.cwd)
             }
             applySideEffects(event: event, data: &data, input: input, sessionsDir: sessionsDir, safeId: safeId)
-            if input.hasDelegatedSessionEvidence(environment: deps.environment()) { data.isSubagentSession = true }
+            if let evidence = input.delegatedSessionEvidence(environment: deps.environment()) {
+                data.isSubagentSession = true
+                applyParentHarnessEvidence(&data, evidence: evidence)
+            }
             if data.shouldAutoHide || (event == .userPromptSubmit && input.hasCodexProjectSuggestionEvidence) { data.hidden = true }
             data.markWrittenByHook(version: Config.hookVersion, isNewSessionFile: isNewSessionFile)
 
@@ -97,30 +100,14 @@ enum HookHandler {
     private static func clearToolState(_ data: inout SessionData) {
         clearRunningToolState(&data)
         data.notificationMessage = nil
+        // Prompt boundaries end the turn that queued these; an unpaired description
+        // must never attach to a subagent spawned by a later turn.
+        data.pendingSubagentDescriptions = nil
     }
 
     private static func clearRunningToolState(_ data: inout SessionData) {
         data.lastTool = nil
         data.lastToolDetail = nil
-    }
-
-    private static func applySubagentEvent(event: HookEvent, data: inout SessionData, input: HookInput) {
-        switch event {
-        case .subagentStart:
-            guard let agentId = input.agentId, let agentType = input.agentType else { return }
-            if data.activeSubagents == nil { data.activeSubagents = [] }
-            if !data.activeSubagents!.contains(where: { $0.agentId == agentId }) {
-                data.activeSubagents!.append(
-                    SubagentInfo(agentId: agentId, agentType: agentType, startedAt: Date())
-                )
-            }
-        case .subagentStop:
-            if let agentId = input.agentId {
-                data.activeSubagents?.removeAll { $0.agentId == agentId }
-            }
-        default:
-            break
-        }
     }
 
     /// Apply status transition and update session metadata. Returns (oldStatus, newStatus).
@@ -195,10 +182,7 @@ enum HookHandler {
             clearToolState(&data)
             if let prompt = input.prompt { data.lastPrompt = prompt }
         case .preToolUse:
-            if let toolName = input.toolName {
-                data.lastTool = toolName
-                data.lastToolDetail = extractToolDetail(toolName: toolName, toolInput: input.toolInput)
-            }
+            applyPreToolUseSideEffects(&data, input: input)
 
         case .permissionRequest:
             let msg = input.title ?? input.toolName.map { tool in
@@ -214,8 +198,8 @@ enum HookHandler {
             applyNotificationEvent(event: event, data: &data, input: input)
         case .stop:
             clearToolState(&data)
-        case .postToolUseFailure:
-            if let error = input.error { data.notificationMessage = error }
+        case .postToolUse, .postToolUseFailure:
+            applyToolResultSideEffects(event: event, data: &data, input: input)
         case .subagentStart, .subagentStop:
             applySubagentEvent(event: event, data: &data, input: input)
 
@@ -223,7 +207,7 @@ enum HookHandler {
             data.notificationMessage = input.error ?? input.message
 
         // notificationPermission: PermissionRequest already handles side effects; Notification fires ~6s later.
-        case .notificationPermission, .postCompact, .preCompact, .postToolUse, .sessionEnd, .unknown:
+        case .notificationPermission, .postCompact, .preCompact, .sessionEnd, .unknown:
             break
         }
     }
@@ -397,6 +381,132 @@ enum HookHandler {
 
 }
 
+// MARK: - Subagent attribution
+
+extension HookHandler {
+    /// `agent_id` is present on ANY hook fired from inside a subagent, so a parent-scoped
+    /// event is exactly the one where it is absent. Only those may touch the parent's tool.
+    private static func applyPreToolUseSideEffects(_ data: inout SessionData, input: HookInput) {
+        guard input.agentId == nil else {
+            applySubagentActivity(&data, input: input, updatesTool: true)
+            return
+        }
+        if let toolName = input.toolName {
+            data.lastTool = toolName
+            data.lastToolDetail = extractToolDetail(toolName: toolName, toolInput: input.toolInput)
+        }
+        enqueueSubagentDescription(&data, input: input)
+    }
+
+    /// A tool result only advances the reporting subagent's activity; it never rewrites the
+    /// parent's tool. The failure message stays exclusive to `PostToolUseFailure`.
+    private static func applyToolResultSideEffects(
+        event: HookEvent, data: inout SessionData, input: HookInput
+    ) {
+        applySubagentActivity(&data, input: input, updatesTool: false)
+        guard event == .postToolUseFailure, let error = input.error else { return }
+        data.notificationMessage = error
+    }
+
+    /// Upper bound on unpaired `Agent`/`Task` descriptions. The queue only has to survive
+    /// the gap between one parent PreToolUse and its SubagentStart, so a small cap is enough
+    /// to keep a runaway parent from growing the session file.
+    static let maxPendingSubagentDescriptions = 16
+
+    private static func applySubagentEvent(event: HookEvent, data: inout SessionData, input: HookInput) {
+        switch event {
+        case .subagentStart:
+            guard let agentId = input.agentId, let agentType = input.agentType else { return }
+            if data.activeSubagents == nil { data.activeSubagents = [] }
+            // An agent-scoped PreToolUse can beat SubagentStart to the file, so an entry may
+            // already exist. Either way exactly one queued description is consumed.
+            if let index = data.activeSubagents!.firstIndex(where: { $0.agentId == agentId }) {
+                if data.activeSubagents![index].description == nil {
+                    data.activeSubagents![index].description = dequeueSubagentDescription(&data)
+                }
+            } else {
+                data.activeSubagents!.append(
+                    SubagentInfo(
+                        agentId: agentId, agentType: agentType, startedAt: Date(),
+                        description: dequeueSubagentDescription(&data)
+                    )
+                )
+            }
+        case .subagentStop:
+            if let agentId = input.agentId {
+                data.activeSubagents?.removeAll { $0.agentId == agentId }
+            }
+        default:
+            break
+        }
+    }
+
+    /// `SubagentStart` carries only `agent_id`/`agent_type`. The parent's own PreToolUse for
+    /// the spawning `Agent` (legacy `Task`) tool fires just before it and is the only place
+    /// the task label appears, so the two are paired FIFO.
+    private static func enqueueSubagentDescription(_ data: inout SessionData, input: HookInput) {
+        guard let toolName = input.toolName, toolName == "Agent" || toolName == "Task",
+              let description = input.toolInput?["description"], !description.isEmpty else { return }
+        var queue = data.pendingSubagentDescriptions ?? []
+        queue.append(description)
+        if queue.count > maxPendingSubagentDescriptions {
+            queue.removeFirst(queue.count - maxPendingSubagentDescriptions)
+        }
+        data.pendingSubagentDescriptions = queue
+    }
+
+    private static func dequeueSubagentDescription(_ data: inout SessionData) -> String? {
+        guard var queue = data.pendingSubagentDescriptions, !queue.isEmpty else { return nil }
+        let description = queue.removeFirst()
+        data.pendingSubagentDescriptions = queue.isEmpty ? nil : queue
+        return description
+    }
+
+    /// Attribute an agent-scoped tool event to the subagent that ran it instead of the
+    /// parent. Without this the parent card flickers with its children's tools.
+    /// A parent-scoped event (no `agent_id`) is a no-op here.
+    static func applySubagentActivity(
+        _ data: inout SessionData, input: HookInput, updatesTool: Bool
+    ) {
+        guard let agentId = input.agentId else { return }
+        let now = Date()
+        if data.activeSubagents == nil { data.activeSubagents = [] }
+        guard let index = data.activeSubagents!.firstIndex(where: { $0.agentId == agentId }) else {
+            // The subagent's first observed event can arrive before (or instead of)
+            // SubagentStart; record it rather than dropping the activity.
+            var info = SubagentInfo(
+                agentId: agentId, agentType: input.agentType ?? "agent",
+                startedAt: now, lastActivity: now
+            )
+            if updatesTool, let toolName = input.toolName {
+                info.lastTool = toolName
+                info.lastToolDetail = extractToolDetail(toolName: toolName, toolInput: input.toolInput)
+            }
+            data.activeSubagents!.append(info)
+            return
+        }
+        if updatesTool, let toolName = input.toolName {
+            data.activeSubagents![index].lastTool = toolName
+            data.activeSubagents![index].lastToolDetail = extractToolDetail(
+                toolName: toolName, toolInput: input.toolInput
+            )
+        }
+        data.activeSubagents![index].lastActivity = now
+    }
+
+    /// Parent linkage is stamped only when the environment proves it. A later event without
+    /// that evidence (Claude Code does not re-export the marker on every hook) must not
+    /// erase an already-recorded parent.
+    private static func applyParentHarnessEvidence(
+        _ data: inout SessionData, evidence: HookInput.DelegatedSessionEvidence
+    ) {
+        guard let parentHarness = evidence.parentHarness,
+              let parentHarnessSessionId = evidence.parentHarnessSessionId else { return }
+        data.parentHarness = parentHarness
+        data.parentHarnessSessionId = parentHarnessSessionId
+    }
+}
+
 extension HookHandler {
     // MARK: - Cleanup
 
@@ -463,9 +573,10 @@ extension HookHandler {
             if hasTrustedClaudeDesktopBundle(data, sourceOverride: input.resolvedHarnessName) {
                 data.disconnectedAt = data.disconnectedAt ?? endedAt
             }
-            if input.hasDelegatedSessionEvidence(environment: deps.environment()) {
+            if let evidence = input.delegatedSessionEvidence(environment: deps.environment()) {
                 data.isSubagentSession = true
                 data.hidden = true
+                applyParentHarnessEvidence(&data, evidence: evidence)
             }
             data.markWrittenByHook(version: Config.hookVersion, isNewSessionFile: false)
             do {

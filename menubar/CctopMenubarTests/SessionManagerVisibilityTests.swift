@@ -2205,6 +2205,66 @@ final class SessionManagerVisibilityTests: XCTestCase {
     }
 
     @MainActor
+    func testStickyRepairRefusesARecordWithEnvironmentProvedParentLinkage() throws {
+        let root = NSTemporaryDirectory() + "cctop-codex-parent-linkage-\(UUID().uuidString)"
+        let sessionsDir = (root as NSString).appendingPathComponent("sessions")
+        let historyDir = (root as NSString).appendingPathComponent("history")
+        let stateDB = (root as NSString).appendingPathComponent("state_5.sqlite")
+        try FileManager.default.createDirectory(atPath: sessionsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: historyDir, withIntermediateDirectories: true)
+        // Codex's own database calls both threads interactive roots with no spawn edge.
+        try writeCodexStateDatabase(
+            path: stateDB, archivedThreads: [], delegatedThreads: ["linked", "unlinked"]
+        )
+
+        setenv("CCTOP_CODEX_STATE_DB", stateDB, 1)
+        defer {
+            unsetenv("CCTOP_CODEX_STATE_DB")
+            try? FileManager.default.removeItem(atPath: root)
+        }
+
+        func writeDelegate(_ sessionId: String, parentLinked: Bool) throws -> String {
+            let path = (sessionsDir as NSString).appendingPathComponent("codex-\(sessionId).json")
+            var session = codexSession(
+                sessionId: sessionId,
+                projectPath: (root as NSString).appendingPathComponent("projects/cctop")
+            )
+            session.isSubagentSession = true
+            session.hidden = true
+            if parentLinked {
+                session.parentHarness = SessionData.ccSource
+                session.parentHarnessSessionId = "parent-claude-uuid"
+            }
+            try session.writeToFile(path: path)
+            return path
+        }
+        let linkedPath = try writeDelegate("linked", parentLinked: true)
+        let unlinkedPath = try writeDelegate("unlinked", parentLinked: false)
+
+        let manager = makeManager(
+            sessionsDir: sessionsDir,
+            historyDir: historyDir,
+            codexThreads: CodexThreadArchiveLookup(stateDatabasePath: stateDB)
+        )
+        manager.loadSessions()
+
+        let linked = try SessionData.fromFile(path: linkedPath)
+        XCTAssertTrue(linked.hidden, "environment-proved delegation must survive sticky repair")
+        XCTAssertTrue(linked.isSubagentSession)
+        XCTAssertEqual(linked.parentHarness, SessionData.ccSource)
+        XCTAssertFalse(manager.userSessions.contains { $0.displayRecord.data.sessionId == "linked" })
+        XCTAssertEqual(
+            manager.delegatedSessionRecords.map(\.data.sessionId), ["linked"]
+        )
+
+        // The pre-existing repair still runs for a record with no parent evidence.
+        let unlinked = try SessionData.fromFile(path: unlinkedPath)
+        XCTAssertFalse(unlinked.hidden)
+        XCTAssertFalse(unlinked.isSubagentSession)
+        XCTAssertTrue(manager.userSessions.contains { $0.displayRecord.data.sessionId == "unlinked" })
+    }
+
+    @MainActor
     func testSessionManagerDoesNotRepairStickyDelegatedCodexThreadWithoutSpawnEdgeSchema() throws {
         let root = NSTemporaryDirectory() + "cctop-codex-delegated-legacy-schema-\(UUID().uuidString)"
         let sessionsDir = (root as NSString).appendingPathComponent("sessions")
@@ -3486,6 +3546,84 @@ final class SessionManagerVisibilityTests: XCTestCase {
         try writeCodexStateDatabase(path: stateDB, archivedThreads: [])
         manager.garbageCollectFinished()
         XCTAssertFalse(FileManager.default.fileExists(atPath: sessionPath))
+    }
+
+    // MARK: - Delegated projection for the Agents view
+
+    @MainActor
+    func testDelegatedRecordsArePublishedSeparatelyAndFeedNoOperationalSurface() throws {
+        let root = NSTemporaryDirectory() + "cctop-delegated-projection-\(UUID().uuidString)"
+        let sessionsDir = (root as NSString).appendingPathComponent("sessions")
+        let historyDir = (root as NSString).appendingPathComponent("history")
+        try FileManager.default.createDirectory(atPath: sessionsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: historyDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let livePid = UInt32(ProcessInfo.processInfo.processIdentifier)
+        var parent = SessionData(
+            sessionId: "cc-parent", projectPath: (root as NSString).appendingPathComponent("p"),
+            branch: "main", terminal: TerminalInfo(program: "zsh")
+        )
+        parent.source = SessionData.ccSource
+        parent.harnessSessionId = "cc-parent"
+        parent.pid = livePid
+        parent.status = .working
+        try parent.writeToFile(path: (sessionsDir as NSString).appendingPathComponent("\(livePid).json"))
+
+        var delegatedActive = codexSession(
+            sessionId: "codex-delegated",
+            projectPath: (root as NSString).appendingPathComponent("p")
+        )
+        delegatedActive.harnessSessionId = "codex-delegated"
+        delegatedActive.isSubagentSession = true
+        delegatedActive.hidden = true
+        delegatedActive.parentHarness = SessionData.ccSource
+        delegatedActive.parentHarnessSessionId = "cc-parent"
+        try delegatedActive.writeToFile(
+            path: (sessionsDir as NSString).appendingPathComponent("codex-codex-delegated.json")
+        )
+
+        // Finished delegated work must not reach the Agents view either.
+        var delegatedFinished = codexSession(
+            sessionId: "codex-finished",
+            projectPath: (root as NSString).appendingPathComponent("p")
+        )
+        delegatedFinished.harnessSessionId = "codex-finished"
+        delegatedFinished.isSubagentSession = true
+        delegatedFinished.hidden = true
+        delegatedFinished.pid = nil
+        delegatedFinished.lastActivity = Date(timeIntervalSinceNow: -60 * 86_400)
+        try delegatedFinished.writeToFile(
+            path: (sessionsDir as NSString).appendingPathComponent("codex-codex-finished.json")
+        )
+
+        let manager = makeManager(sessionsDir: sessionsDir, historyDir: historyDir)
+        manager.loadSessions()
+
+        XCTAssertEqual(
+            manager.delegatedSessionRecords.map(\.data.harnessSessionId), ["codex-delegated"]
+        )
+        XCTAssertEqual(manager.userSessions.map(\.displayRecord.data.sessionId), ["cc-parent"])
+        XCTAssertEqual(StatusCounts(userSessions: manager.userSessions).total, 1)
+        XCTAssertEqual(manager.droppedUserSessions, [])
+
+        let snapshot = DisplayStateWriter.snapshot(
+            userSessions: manager.userSessions,
+            theme: ThemeManager.shared.current,
+            appRunning: true,
+            appIdentity: nil,
+            now: Date()
+        )
+        XCTAssertEqual(snapshot.sessions.count, 1)
+        XCTAssertFalse(snapshot.sessions.contains { $0.name.contains("codex") })
+
+        // The Agents view still reaches it, hanging off the session that spawned it.
+        let tree = SubworkerTree.build(
+            roots: manager.userSessions,
+            delegated: manager.delegatedSessionRecords.map(\.data)
+        )
+        XCTAssertEqual(tree.childCount, 1)
+        XCTAssertNotNil(tree.groups.first?.root)
     }
 }
 

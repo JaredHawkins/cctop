@@ -2,10 +2,10 @@ import Foundation
 import SwiftUI
 
 enum PopupTab: CaseIterable, Hashable {
-    case active, idle, acknowledged, dropped, recent, cleanup
+    case active, idle, acknowledged, dropped, agents, recent, cleanup
 
     static let primaryCases: [PopupTab] = [.active, .idle, .acknowledged, .dropped]
-    static let secondaryCases: [PopupTab] = [.recent, .cleanup]
+    static let secondaryCases: [PopupTab] = [.agents, .recent, .cleanup]
 
     var label: String {
         switch self {
@@ -13,6 +13,7 @@ enum PopupTab: CaseIterable, Hashable {
         case .idle: return "Idle"
         case .acknowledged: return "Ack"
         case .dropped: return "Dropped"
+        case .agents: return "Agents"
         case .recent: return "Recent"
         case .cleanup: return "Cleanup"
         }
@@ -29,6 +30,8 @@ enum PopupTab: CaseIterable, Hashable {
             return "Acknowledged sessions; newer attention clears the acknowledgement."
         case .dropped:
             return "Sessions removed from normal surfaces until restored or newer activity."
+        case .agents:
+            return "Sub-workers spawned by your sessions: in-process Claude subagents and delegated Claude or Codex runs."
         case .recent:
             return "Finished work and archived desktop sessions. Rows open the project or app when possible."
         case .cleanup:
@@ -46,6 +49,8 @@ enum PopupTab: CaseIterable, Hashable {
             return "Acknowledged sessions appear here until they report newer attention."
         case .dropped:
             return "Dropped sessions appear here until restored or they report newer activity."
+        case .agents:
+            return "Subagents and delegated runs appear here while they are active."
         case .recent:
             return "Finished work and archived desktop sessions appear here."
         case .cleanup:
@@ -132,7 +137,7 @@ struct SecondaryTabMenuView: View {
         .menuIndicator(.hidden)
         .menuStyle(.borderlessButton)
         .fixedSize(horizontal: true, vertical: false)
-        .help("Recent and Cleanup")
+        .help("Agents, Recent, and Cleanup")
         .accessibilityLabel("More views")
         .accessibilityValue(isSelected ? selectedTab.label : "")
     }
@@ -178,7 +183,8 @@ enum PopupSelectionTarget: Equatable {
         in context: PopupSelectionContext
     ) -> PopupSelectionTarget? {
         switch tab {
-        case .active, .idle, .acknowledged, .dropped:
+        // Session selectors resolve by logical identity, and Agents rows are inert.
+        case .active, .idle, .acknowledged, .dropped, .agents:
             return nil
         case .recent:
             guard index < context.recentTargets.count else { return nil }

@@ -8,12 +8,15 @@ umask 077
 LOGS_DIR="$HOME/.cctop/logs"
 mkdir -p "$LOGS_DIR"
 
-# Buffer stdin so we can log before dispatching
+# Buffer stdin so we can log before dispatching.
+# Re-emit it with printf, never echo: /bin/sh's echo on macOS expands backslash escapes,
+# so any payload containing \n inside a JSON string (a multi-line prompt, or the tool_input
+# of every Agent call) reaches cctop-hook as invalid JSON and the event is dropped.
 INPUT=$(cat)
 
 # Extract session ID and label for logging
-CWD=$(echo "$INPUT" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p' | head -1)
-SID=$(echo "$INPUT" | sed -n 's/.*"session_id" *: *"\([^"]*\)".*/\1/p' | head -1)
+CWD=$(printf '%s\n' "$INPUT" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p' | head -1)
+SID=$(printf '%s\n' "$INPUT" | sed -n 's/.*"session_id" *: *"\([^"]*\)".*/\1/p' | head -1)
 SID=$(echo "$SID" | tr -cd 'a-zA-Z0-9_-')
 PROJECT=$(basename "$CWD")
 LABEL="${PROJECT:-unknown}:$(echo "$SID" | cut -c1-8)"
@@ -23,11 +26,11 @@ TS=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 echo "$TS SHIM $EVENT $LABEL dispatching" >> "$LOG" 2>/dev/null
 
 if [ -x "$HOME/.cctop/bin/cctop-hook" ]; then
-    echo "$INPUT" | "$HOME/.cctop/bin/cctop-hook" "$EVENT" --harness cc
+    printf '%s\n' "$INPUT" | "$HOME/.cctop/bin/cctop-hook" "$EVENT" --harness cc
 elif [ -x "/Applications/cctop.app/Contents/MacOS/cctop-hook" ]; then
-    echo "$INPUT" | /Applications/cctop.app/Contents/MacOS/cctop-hook "$EVENT" --harness cc
+    printf '%s\n' "$INPUT" | /Applications/cctop.app/Contents/MacOS/cctop-hook "$EVENT" --harness cc
 elif [ -x "$HOME/Applications/cctop.app/Contents/MacOS/cctop-hook" ]; then
-    echo "$INPUT" | "$HOME/Applications/cctop.app/Contents/MacOS/cctop-hook" "$EVENT" --harness cc
+    printf '%s\n' "$INPUT" | "$HOME/Applications/cctop.app/Contents/MacOS/cctop-hook" "$EVENT" --harness cc
 else
     echo "$TS ERROR run-hook.sh: cctop-hook not found ($LABEL event=$EVENT)" >> "$LOG" 2>/dev/null
 fi

@@ -90,10 +90,14 @@ extension SessionManager {
 
     func updateAuxiliarySessionProjections(
         dropped: [UserSession],
+        delegated: [SessionRecord],
         acknowledgedSessionIDs: Set<String>
     ) {
         if dropped != droppedUserSessions {
             droppedUserSessions = dropped
+        }
+        if delegated != delegatedSessionRecords {
+            delegatedSessionRecords = delegated
         }
         if acknowledgedSessionIDs != self.acknowledgedSessionIDs {
             self.acknowledgedSessionIDs = acknowledgedSessionIDs
@@ -125,7 +129,7 @@ extension SessionManager {
         var nextAcknowledgedSessionIDs = acknowledgedSessionIDs
         nextAcknowledgedSessionIDs.insert(cctopSessionID)
         updateAuxiliarySessionProjections(
-            dropped: droppedUserSessions,
+            dropped: droppedUserSessions, delegated: delegatedSessionRecords,
             acknowledgedSessionIDs: nextAcknowledgedSessionIDs
         )
         updateSessionProjection(
@@ -224,7 +228,7 @@ extension SessionManager {
             now: dataSources.now()
         )
         updateAuxiliarySessionProjections(
-            dropped: nextDroppedUserSessions,
+            dropped: nextDroppedUserSessions, delegated: delegatedSessionRecords,
             acknowledgedSessionIDs: acknowledgedSessionIDs.subtracting([cctopSessionID])
         )
         updateSessionProjection(userSessions.filter { $0.identity != identity })
@@ -257,6 +261,7 @@ extension SessionManager {
         removeNotification(cctopSessionID: cctopSessionID, matching: hiddenRecords)
         updateAuxiliarySessionProjections(
             dropped: droppedUserSessions.filter { $0.identity != identity },
+            delegated: delegatedSessionRecords,
             acknowledgedSessionIDs: acknowledgedSessionIDs.subtracting([cctopSessionID])
         )
         updateSessionProjection(userSessions.filter { $0.identity != identity })

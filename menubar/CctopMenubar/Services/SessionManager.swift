@@ -12,6 +12,7 @@ struct WorktreeCleanupSessionSnapshot {
 // swiftlint:disable:next type_body_length
 class SessionManager: ObservableObject {
     @Published private(set) var userSessions: [UserSession] = []
+    @Published var delegatedSessionRecords: [SessionRecord] = []
     @Published var droppedUserSessions: [UserSession] = []
     @Published var acknowledgedSessionIDs: Set<String> = []
     @Published var recentResumeTargets: [RecentResumeTarget] = []
@@ -72,7 +73,7 @@ class SessionManager: ObservableObject {
             lastDisplaySignature = .empty
             lastLoadLogSignature = nil
             sessionFileCache.removeAll()
-            updateAuxiliarySessionProjections(dropped: [], acknowledgedSessionIDs: [])
+            updateAuxiliarySessionProjections(dropped: [], delegated: [], acknowledgedSessionIDs: [])
             updateSessionProjection([])
             if !hasStoredHideEvidence {
                 publishRecentResumeTargets(historyManager.recentProjects.map(RecentResumeTarget.project))
@@ -142,7 +143,7 @@ class SessionManager: ObservableObject {
         )
         let displaySignature = SessionDisplayPolicy.signature(for: newUserSessions, now: now)
         updateAuxiliarySessionProjections(
-            dropped: newDroppedUserSessions,
+            dropped: newDroppedUserSessions, delegated: Self.delegatedRecords(in: classification),
             acknowledgedSessionIDs: acknowledgementProjection.acknowledgedSessionIDs
         )
         updateSessionProjection(

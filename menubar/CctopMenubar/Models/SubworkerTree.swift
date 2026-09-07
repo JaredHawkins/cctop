@@ -1,0 +1,272 @@
+import Foundation
+
+/// What one row of the Agents view represents.
+enum SubworkerKind: Equatable {
+    /// A Claude subagent recorded in its parent session's `active_subagents`.
+    case inProcess(SubagentInfo)
+    /// A whole delegated session record spawned by another harness.
+    case delegated(SessionData)
+}
+
+/// Pure model behind the Agents view: which sub-workers each visible session currently owns.
+///
+/// Two kinds of sub-worker exist and they are deliberately kept separate:
+///
+/// - **in-process** — a Claude subagent recorded in the parent's own `active_subagents`.
+/// - **delegated** — a whole hidden session record (`is_subagent`) that another harness
+///   spawned, linked back by `parent_harness` / `parent_harness_session_id`.
+///
+/// Nothing here reads or writes session files, so the rules stay testable in isolation.
+enum SubworkerTree {
+    /// Chains deeper than this flatten onto the last supported level instead of indenting
+    /// forever. Claude → Codex → Claude is the deepest chain observed in practice.
+    static let maxDepth = 3
+
+    /// A sub-worker with no observed activity for this long is rendered as stale rather
+    /// than deleted: the parent may simply not have reported a Stop yet.
+    static let staleInterval: TimeInterval = 1_800
+
+    static let unattributedGroupID = "unattributed"
+    static let unattributedGroupTitle = "Unattributed"
+
+    struct Node: Identifiable, Equatable {
+        let id: String
+        /// 1 for a direct child of the group's root, capped at `maxDepth`.
+        let depth: Int
+        let kind: SubworkerKind
+    }
+
+    /// One root session and every sub-worker beneath it, already flattened depth-first.
+    struct Group: Identifiable, Equatable {
+        let id: String
+        /// The visible session this group hangs from. Nil for the trailing Unattributed group.
+        let root: UserSession?
+        let nodes: [Node]
+    }
+
+    struct Snapshot: Equatable {
+        let groups: [Group]
+
+        static let empty = Snapshot(groups: [])
+
+        /// Total sub-workers across every group and depth. This is the tab's count.
+        var childCount: Int { groups.reduce(0) { $0 + $1.nodes.count } }
+        var isEmpty: Bool { groups.isEmpty }
+    }
+
+    /// Matching is an exact byte comparison of the raw harness reference. Codex keys its
+    /// files `codex-<id>` but `harness_session_id` holds the raw id, so that is what both
+    /// sides of the link use.
+    private struct HarnessKey: Hashable {
+        let harness: String
+        let sessionId: String
+    }
+
+    /// - Parameters:
+    ///   - roots: the visible user sessions, in canonical order. Dropped sessions are
+    ///     already absent from `SessionManager.userSessions`, so no extra filter is needed.
+    ///   - delegated: hidden delegated records, in canonical order.
+    static func build(roots: [UserSession], delegated: [SessionData]) -> Snapshot {
+        var childrenByParent: [HarnessKey: [SessionData]] = [:]
+        for data in delegated {
+            guard let key = parentKey(for: data) else { continue }
+            childrenByParent[key, default: []].append(data)
+        }
+        let ownerKeys = Set(
+            roots.compactMap { ownKey(for: $0.displayRecord.data) }
+                + delegated.compactMap { ownKey(for: $0) }
+        )
+
+        var consumed: Set<String> = []
+        var groups: [Group] = []
+        for root in roots {
+            let nodes = childNodes(
+                of: root.displayRecord.data,
+                depth: 1,
+                childrenByParent: childrenByParent,
+                consumed: &consumed
+            )
+            guard !nodes.isEmpty else { continue }
+            groups.append(Group(id: groupID(for: root), root: root, nodes: nodes))
+        }
+
+        let unattributed = unattributedNodes(
+            in: delegated,
+            ownerKeys: ownerKeys,
+            childrenByParent: childrenByParent,
+            consumed: &consumed
+        )
+        if !unattributed.isEmpty {
+            groups.append(Group(id: unattributedGroupID, root: nil, nodes: unattributed))
+        }
+        return Snapshot(groups: groups)
+    }
+
+    static func isStale(_ info: SubagentInfo, now: Date) -> Bool {
+        now.timeIntervalSince(info.effectiveActivity) > staleInterval
+    }
+
+    static func groupID(for root: UserSession) -> String {
+        root.identity.cctopSessionID.map { "root:\($0)" }
+            ?? "root:\(SessionIdentityPolicy.stableKey(for: root.displayRecord.data))"
+    }
+
+    // MARK: - Internals
+
+    private static func childNodes(
+        of owner: SessionData,
+        depth: Int,
+        childrenByParent: [HarnessKey: [SessionData]],
+        consumed: inout Set<String>
+    ) -> [Node] {
+        let nodeDepth = min(depth, maxDepth)
+        let ownerNodeKey = nodeKey(for: owner)
+        var nodes = (owner.activeSubagents ?? [])
+            .sorted { $0.startedAt < $1.startedAt }
+            .map { info in
+                Node(id: "agent:\(ownerNodeKey):\(info.agentId)", depth: nodeDepth, kind: .inProcess(info))
+            }
+
+        guard let key = ownKey(for: owner) else { return nodes }
+        for child in childrenByParent[key] ?? [] {
+            let childKey = nodeKey(for: child)
+            // Also the cycle guard: a record already placed can never be placed again.
+            guard consumed.insert(childKey).inserted else { continue }
+            nodes.append(Node(id: childKey, depth: nodeDepth, kind: .delegated(child)))
+            nodes.append(contentsOf: childNodes(
+                of: child,
+                depth: depth + 1,
+                childrenByParent: childrenByParent,
+                consumed: &consumed
+            ))
+        }
+        return nodes
+    }
+
+    /// Records whose parent is missing, unknown, or itself unreachable. Their own subtrees
+    /// still nest so a delegated chain does not fragment just because its top is orphaned.
+    private static func unattributedNodes(
+        in delegated: [SessionData],
+        ownerKeys: Set<HarnessKey>,
+        childrenByParent: [HarnessKey: [SessionData]],
+        consumed: inout Set<String>
+    ) -> [Node] {
+        var nodes: [Node] = []
+        func place(_ data: SessionData) {
+            guard consumed.insert(nodeKey(for: data)).inserted else { return }
+            nodes.append(Node(id: nodeKey(for: data), depth: 1, kind: .delegated(data)))
+            nodes.append(contentsOf: childNodes(
+                of: data, depth: 2, childrenByParent: childrenByParent, consumed: &consumed
+            ))
+        }
+        for data in delegated {
+            guard let parent = parentKey(for: data) else { place(data); continue }
+            if !ownerKeys.contains(parent) { place(data) }
+        }
+        // Anything still unplaced belongs to a cycle or to an owner that never emitted a
+        // group; show it rather than losing it.
+        for data in delegated { place(data) }
+        return nodes
+    }
+
+    private static func ownKey(for data: SessionData) -> HarnessKey? {
+        guard let harnessSessionId = data.harnessSessionId, !harnessSessionId.isEmpty else { return nil }
+        return HarnessKey(harness: data.source ?? SessionData.ccSource, sessionId: harnessSessionId)
+    }
+
+    private static func parentKey(for data: SessionData) -> HarnessKey? {
+        guard let harness = data.parentHarness, !harness.isEmpty,
+              let sessionId = data.parentHarnessSessionId, !sessionId.isEmpty else { return nil }
+        return HarnessKey(harness: harness, sessionId: sessionId)
+    }
+
+    private static func nodeKey(for data: SessionData) -> String {
+        "session:\(data.cctopSessionId ?? data.harnessSessionId ?? data.sessionId)"
+    }
+}
+
+// MARK: - Preview fixtures
+
+extension SubworkerTree {
+    /// Claude root → in-process subagents + a delegated Codex run → that Codex run's own
+    /// delegated Claude run, plus one orphan. Mirrors the deepest real chain.
+    private static let previewSessions: (roots: [SessionData], delegated: [SessionData]) = {
+        var claude = SessionData.mock(
+            id: "cc-root", harnessSessionId: "cc-root-uuid", project: "cctop",
+            branch: "jared/agents-view", sessionName: "Add the Agents view",
+            status: .working, lastTool: "Agent", lastToolDetail: "Check the shim",
+            source: SessionData.ccSource,
+            activeSubagents: [
+                SubagentInfo(
+                    agentId: "a1", agentType: "Explore",
+                    startedAt: Date().addingTimeInterval(-95),
+                    description: "Find the tab switch", lastTool: "Grep",
+                    lastToolDetail: "PopupTab", lastActivity: Date().addingTimeInterval(-4)
+                ),
+                SubagentInfo(
+                    agentId: "a2", agentType: "expert-review",
+                    startedAt: Date().addingTimeInterval(-3_400),
+                    description: "Review the delegation contract"
+                )
+            ]
+        )
+        claude.lastActivity = Date().addingTimeInterval(-4)
+
+        var codex = SessionData.mock(
+            id: "codex-child", harnessSessionId: "codex-thread-uuid", project: "cctop",
+            branch: "jared/agents-view", sessionName: "Second implementation pass",
+            status: .waitingPermission, notificationMessage: "Allow Bash: swiftlint lint",
+            source: SessionData.codexSource
+        )
+        codex.isSubagentSession = true
+        codex.hidden = true
+        codex.parentHarness = SessionData.ccSource
+        codex.parentHarnessSessionId = "cc-root-uuid"
+        codex.startedAt = Date().addingTimeInterval(-240)
+
+        var grandchild = SessionData.mock(
+            id: "cc-grandchild", harnessSessionId: "cc-grandchild-uuid", project: "cctop",
+            branch: "jared/agents-view", status: .working,
+            lastTool: "Read", lastToolDetail: "/menubar/CctopMenubar/Hook/HookHandler.swift",
+            source: SessionData.ccSource
+        )
+        grandchild.isSubagentSession = true
+        grandchild.hidden = true
+        grandchild.parentHarness = SessionData.codexSource
+        grandchild.parentHarnessSessionId = "codex-thread-uuid"
+        grandchild.startedAt = Date().addingTimeInterval(-70)
+
+        var orphan = SessionData.mock(
+            id: "orphan", harnessSessionId: "orphan-uuid", project: "geolab",
+            branch: "main", status: .idle, source: SessionData.codexSource
+        )
+        orphan.isSubagentSession = true
+        orphan.hidden = true
+        orphan.startedAt = Date().addingTimeInterval(-900)
+
+        return ([claude], [codex, grandchild, orphan])
+    }()
+
+    static var previewRoots: [UserSession] {
+        previewSessions.roots.enumerated().map { index, data in
+            let record = SessionRecord(
+                data: data, lifecycleRank: data.lifecycle.rawValue,
+                mtime: .distantPast, path: "/preview-root-\(index).json"
+            )
+            return UserSession(
+                identity: SessionIdentityPolicy.logicalIdentity(for: data),
+                records: [record],
+                displayRecord: record
+            )
+        }
+    }
+
+    static var previewDelegatedRecords: [SessionRecord] {
+        previewSessions.delegated.enumerated().map { index, data in
+            SessionRecord(
+                data: data, lifecycleRank: data.lifecycle.rawValue,
+                mtime: .distantPast, path: "/preview-delegated-\(index).json"
+            )
+        }
+    }
+}

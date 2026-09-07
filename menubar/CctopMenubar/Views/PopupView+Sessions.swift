@@ -190,7 +190,8 @@ extension PopupView {
             showSourceBadge: hasMultipleSources,
             isSelected: selectedSessionIdentity == row.id,
             relativeTimeNow: relativeTimeNow,
-            presentationStatusLabel: row.presentation.statusLabel
+            presentationStatusLabel: row.presentation.statusLabel,
+            onShowAgents: agentsBadgeAction(for: row)
         )
         .id(row.id)
         .onTapGesture { focusSession(row.session) }
@@ -253,6 +254,13 @@ extension PopupView {
         }
     }
 
+    /// Dropped sessions are excluded from the Agents view's roots, so their subagents are
+    /// not there to show. Leave the badge as inert metadata instead of opening an empty tab.
+    func agentsBadgeAction(for row: PanelSessionRow) -> (() -> Void)? {
+        guard row.presentation != .dropped else { return nil }
+        return { selectTab(.agents) }
+    }
+
     func acknowledgeSession(_ row: PanelSessionRow) {
         guard row.session.status.needsAttention,
               row.userSession.identity.cctopSessionID != nil else { return }
@@ -306,7 +314,7 @@ extension PopupView {
             candidates = currentAcknowledgedUserSessions
         case .dropped:
             candidates = droppedUserSessions
-        case .recent, .cleanup:
+        case .agents, .recent, .cleanup:
             return nil
         }
         return FocusTargetResolver.currentUserSession(for: identity, in: candidates)

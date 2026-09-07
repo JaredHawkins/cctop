@@ -9,6 +9,7 @@ struct PopupView: View {
     let userSessions: [UserSession]
     var acknowledgedSessionIDs: Set<String> = []
     var droppedUserSessions: [UserSession] = []
+    var delegatedSessionRecords: [SessionRecord] = []
     var recentProjects: [RecentProject] = []
     var recentResumeTargets: [RecentResumeTarget]?
     var cleanupCandidates: [WorktreeCleanupCandidate] = []
@@ -71,6 +72,7 @@ struct PopupView: View {
                     case .idle: idleContent
                     case .acknowledged: acknowledgedContent
                     case .dropped: droppedContent
+                    case .agents: agentsContent
                     case .recent: recentContent
                     case .cleanup: cleanupContent
                     }
@@ -166,6 +168,7 @@ struct PopupView: View {
         case .idle: return idleSessionRows.count
         case .acknowledged: return acknowledgedSessionRows.count
         case .dropped: return droppedSessionRows.count
+        case .agents: return subworkerTree.childCount
         case .recent: return recentTargets.count
         case .cleanup: return actionableCleanupCandidates.count
         }
@@ -190,7 +193,7 @@ struct PopupView: View {
         .help(tab.helpText)
     }
 
-    private func selectTab(_ tab: PopupTab) {
+    func selectTab(_ tab: PopupTab) {
         if overlayController.active != nil { closeOverlay(animated: false) }
         withAnimation(.easeInOut(duration: 0.15)) { selectedTab = tab }
         notifyLayoutChanged()
@@ -424,10 +427,9 @@ extension PopupView {
         case .dropped:
             moveSessionSelection(by: delta, in: droppedSessionRows)
             return
-        case .recent:
-            moveIndexedSelection(by: delta, count: recentTargets.count)
-        case .cleanup:
-            moveIndexedSelection(by: delta, count: actionableCleanupCandidates.count)
+        case .agents: return // Agents rows are read-only: no selection, focus, or row actions.
+        case .recent: moveIndexedSelection(by: delta, count: recentTargets.count)
+        case .cleanup: moveIndexedSelection(by: delta, count: actionableCleanupCandidates.count)
         }
     }
 

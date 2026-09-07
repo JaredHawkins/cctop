@@ -443,12 +443,28 @@ Always black, regardless of theme — it's OS chrome that meets the camera notch
 
 Four equal-width 22 px primary segments and one fixed 28 px overflow control
 live in one compact track with 2 px inset and 8 px outer / 6 px inner radii.
-The overflow menu exposes Recent and Cleanup with their counts. The selected tab uses a native-style thumb
+The overflow menu exposes Agents, Recent, and Cleanup with their counts. The selected tab uses a native-style thumb
 and subtle shadow, never an accent stroke. Hover is fill-only. Labels and
 tabular counts are 10 px with tight 2 px internal spacing and 1 px between segments; zero counts remain visible, while scanning and unseen Cleanup
 states keep their existing progress/attention cues. Ack mirrors acknowledged
 rows that remain in Active or Idle. Dropped is the only selector that exposes
 temporarily dropped rows and their Restore Session action.
+
+### Agents view (`PopupView+Agents.swift`)
+
+A grouped, read-only list. Each group header restates its parent session in the
+session card's own vocabulary — 13 px semibold name, quiet source badge, the same
+status label, and the shared 10.5 px relative time — and clicking it runs the
+exact focus action that row already uses. Child rows are quieter: 11 px medium
+title (subagent type, or the delegated session's display name), 10.5 px
+`textSecondary` task description, the 10.5 px monospace `›` command stripe reused
+from session card row 3, and a 10.5 px elapsed time. Depth indents 12 px per
+level, capped at three levels. A sub-worker silent for over 30 minutes drops to
+`textSecondary`/`textMuted` and its time reads "… · stale"; the row is never
+removed. Rows carry no navigate number, acknowledge, drop, or hide action, and
+the trailing Unattributed group collects sub-workers whose parent is not on
+screen. The session card's purple subagent count is the same 10 px badge, now a
+plain button that opens this view.
 
 ### Settings grouped list
 

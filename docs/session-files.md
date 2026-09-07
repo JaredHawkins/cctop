@@ -299,6 +299,60 @@ normal surfaces. Partial inventories retain unobserved drop evidence; a complete
 inventory prunes missing sessions. **Hide Session** also clears any temporary
 drop for the same permanent ID so only the durable visibility decision remains.
 
+### `active_subagents[]`
+
+Type: `array` of objects
+
+Default: `null` when omitted.
+
+Each entry describes one in-process subagent owned by this session. `agent_id`,
+`agent_type`, and `started_at` are always present. Every other key is optional so
+records written by earlier hooks keep loading:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `description` | string | `null` | Task label paired from the parent's own `Agent`/`Task` `PreToolUse`. `SubagentStart` does not carry it. |
+| `last_tool` | string | `null` | Tool name from the subagent's most recent `PreToolUse`. |
+| `last_tool_detail` | string | `null` | That tool's detail, extracted by the same rule as the session's `last_tool_detail`. |
+| `last_activity` | date | `null` | Most recent agent-scoped hook. Display falls back to `started_at` when absent. |
+
+Claude Code sends `agent_id` (and `agent_type`) on ANY hook fired from inside a
+subagent, not only `SubagentStart`/`SubagentStop`. An agent-scoped tool event
+updates its own entry and must never overwrite the parent's `last_tool` or
+`last_tool_detail`.
+
+### `pending_subagent_descriptions`
+
+Type: `array` of strings
+
+Default: `null` when omitted.
+
+FIFO queue of `Agent`/`Task` descriptions observed on the parent's own
+`PreToolUse` but not yet paired with a `SubagentStart`. `SubagentStart` pops the
+first entry into that subagent's `description`. The queue is capped at 16 entries
+(oldest dropped first) and cleared at every prompt boundary — `SessionStart`,
+`UserPromptSubmit`, and `Stop` — so a stale label can never attach to a subagent
+spawned by a later turn.
+
+### `parent_harness` and `parent_harness_session_id`
+
+Type: `string`
+
+Default: `null` when omitted.
+
+Together they name the session that spawned a delegated record.
+`parent_harness` is `"cc"` or `"codex"`. `parent_harness_session_id` is the
+spawning session's exact unsanitized reference, byte for byte, under the same
+rules as `harness_session_id`: it is evidence, never cctop identity, and it is
+never sanitized or truncated. Matching a child to a parent is an exact byte
+comparison of `(harness, reference)`; Codex records key their files
+`codex-<id>` but carry the raw id in `harness_session_id`, and that raw id is
+what both sides compare.
+
+Both fields are stamped only when the hook process environment proves the link,
+and a later event that lacks that evidence never clears them. Missing fields
+mean cctop has no parent evidence, not that the record is a root.
+
 ### `is_subagent`
 
 Type: `boolean`
@@ -309,15 +363,23 @@ When `is_subagent` is `true`, the session file represents a delegated subagent's
 
 Clients that can identify internal helper sessions should set `is_subagent: true` in their hook payloads. For Codex sessions, cctop decodes the structured `threads.source` value from Codex's local thread database: `SessionSource::SubAgent(...)` and `SessionSource::Internal(...)` are hidden, while `cli` and `vscode` remain user-visible even if the legacy diagnostic `thread_source` says `subagent`. `thread_spawn_edges` corroborates topology but is not the primary classifier, because review and guardian helpers may have no edge. Missing, malformed, unknown, or contradictory source evidence fails open and is counted in the session-load diagnostics.
 
-Direct Codex hook events also count as delegated when their process environment
-contains the `CLAUDE_CODE_CHILD_SESSION` key. Claude Code supplies that key,
+Delegation is detected in both directions, each rule scoped to the opposite
+harness so an inherited key can never hide the session that owns it. Direct
+Codex hook events count as delegated when their process environment contains the
+`CLAUDE_CODE_CHILD_SESSION` key. Claude Code supplies that key,
 with or without a value, to Codex subprocesses it launches for delegated work. Those
 subprocesses can inherit Ghostty metadata from the parent Claude session, so
 terminal metadata is not evidence that the Codex session was started directly
 by the user. The marker applies only to `source: "codex"`; normal Claude Code,
 Codex Desktop, and directly launched Codex CLI sessions remain visible.
+Direct Claude Code hook events count as delegated when their environment
+contains a non-empty `CODEX_THREAD_ID`, which Codex exports to the processes its
+exec tool launches. `CLAUDE_CODE_SESSION_ID` is parent evidence only for a
+`codex` hook: Claude Code exports it to its own children, so for a `cc` hook it
+is the session's own reference.
 The local maintenance and upgrade procedure for this behavior is documented in
-[local-claude-codex-delegation-patch.md](local-claude-codex-delegation-patch.md).
+[local-claude-codex-delegation-patch.md](local-claude-codex-delegation-patch.md)
+and [local-agents-view-patch.md](local-agents-view-patch.md).
 
 Codex hooks do not yet expose semantic visibility or openability for ephemeral
 root workers. cctop treats an explicitly null `transcript_path` on a positively

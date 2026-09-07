@@ -187,16 +187,31 @@ extension MultiplexerInfo {
     }
 }
 
+/// One in-process subagent owned by a parent session. Every field after `startedAt` is
+/// optional so records written by hooks that predate per-subagent attribution still decode.
 struct SubagentInfo: Codable, Equatable {
     let agentId: String
     let agentType: String
     let startedAt: Date
+    /// Task label paired from the parent's own `Agent`/`Task` PreToolUse. `SubagentStart`
+    /// itself carries only the id and type.
+    var description: String?
+    var lastTool: String?
+    var lastToolDetail: String?
+    var lastActivity: Date?
 
     enum CodingKeys: String, CodingKey {
         case agentId = "agent_id"
         case agentType = "agent_type"
         case startedAt = "started_at"
+        case description
+        case lastTool = "last_tool"
+        case lastToolDetail = "last_tool_detail"
+        case lastActivity = "last_activity"
     }
+
+    /// The best available "still working" timestamp for staleness display.
+    var effectiveActivity: Date { lastActivity ?? startedAt }
 }
 
 /// Display-only lifecycle of a session, derived on each load and never persisted (a new
@@ -255,7 +270,16 @@ struct SessionData: Codable, Identifiable, Equatable {
     var endedAt: Date?
     var disconnectedAt: Date?
     var activeSubagents: [SubagentInfo]?
+    /// FIFO queue of `Agent`/`Task` descriptions seen on the parent's own PreToolUse but not
+    /// yet paired with a `SubagentStart`. Bounded; cleared on every prompt boundary.
+    var pendingSubagentDescriptions: [String]?
     var isSubagentSession: Bool
+    /// Harness that spawned this delegated session (`cc` or `codex`), when the hook
+    /// environment proved it. Never cleared by a later event that lacks the evidence.
+    var parentHarness: String?
+    /// The spawning session's raw, unsanitized harness reference. Same rules as
+    /// `harnessSessionId`: evidence for parent linkage, never cctop identity.
+    var parentHarnessSessionId: String?
     var hidden: Bool
     var createdByHookVersion: String?
     var lastWrittenByHookVersion: String?
@@ -304,6 +328,13 @@ struct SessionData: Codable, Identifiable, Equatable {
         activeSubagents?.count ?? 0
     }
 
+    /// True when a hook proved from its own process environment that another harness's
+    /// session spawned this one. This provenance is first-hand and outranks a client's
+    /// later self-report, so sticky-classification repair must not clear it.
+    var hasDelegationParentEvidence: Bool {
+        parentHarness != nil && parentHarnessSessionId != nil
+    }
+
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case cctopSessionId = "cctop_session_id"
@@ -326,7 +357,10 @@ struct SessionData: Codable, Identifiable, Equatable {
         case endedAt = "ended_at"
         case disconnectedAt = "disconnected_at"
         case activeSubagents = "active_subagents"
+        case pendingSubagentDescriptions = "pending_subagent_descriptions"
         case isSubagentSession = "is_subagent"
+        case parentHarness = "parent_harness"
+        case parentHarnessSessionId = "parent_harness_session_id"
         case hidden
         case createdByHookVersion = "created_by_hook_version"
         case lastWrittenByHookVersion = "last_written_by_hook_version"
@@ -359,7 +393,12 @@ struct SessionData: Codable, Identifiable, Equatable {
         endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
         disconnectedAt = try container.decodeIfPresent(Date.self, forKey: .disconnectedAt)
         activeSubagents = try container.decodeIfPresent([SubagentInfo].self, forKey: .activeSubagents)
+        pendingSubagentDescriptions = try container.decodeIfPresent(
+            [String].self, forKey: .pendingSubagentDescriptions
+        )
         isSubagentSession = try container.decodeIfPresent(Bool.self, forKey: .isSubagentSession) ?? false
+        parentHarness = try container.decodeIfPresent(String.self, forKey: .parentHarness)
+        parentHarnessSessionId = try container.decodeIfPresent(String.self, forKey: .parentHarnessSessionId)
         hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
         createdByHookVersion = try container.decodeIfPresent(String.self, forKey: .createdByHookVersion)
         lastWrittenByHookVersion = try container.decodeIfPresent(String.self, forKey: .lastWrittenByHookVersion)
@@ -390,7 +429,10 @@ struct SessionData: Codable, Identifiable, Equatable {
         endedAt: Date? = nil,
         disconnectedAt: Date? = nil,
         activeSubagents: [SubagentInfo]? = nil,
+        pendingSubagentDescriptions: [String]? = nil,
         isSubagentSession: Bool = false,
+        parentHarness: String? = nil,
+        parentHarnessSessionId: String? = nil,
         hidden: Bool = false,
         createdByHookVersion: String? = nil,
         lastWrittenByHookVersion: String? = nil
@@ -418,7 +460,10 @@ struct SessionData: Codable, Identifiable, Equatable {
         self.endedAt = endedAt
         self.disconnectedAt = disconnectedAt
         self.activeSubagents = activeSubagents
+        self.pendingSubagentDescriptions = pendingSubagentDescriptions
         self.isSubagentSession = isSubagentSession
+        self.parentHarness = parentHarness
+        self.parentHarnessSessionId = parentHarnessSessionId
         self.hidden = hidden
         self.createdByHookVersion = createdByHookVersion
         self.lastWrittenByHookVersion = lastWrittenByHookVersion

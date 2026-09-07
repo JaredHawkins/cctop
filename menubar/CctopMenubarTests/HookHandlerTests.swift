@@ -1955,4 +1955,326 @@ final class HookHandlerTests: XCTestCase {
         XCTAssertEqual(sessionFileName(input: claude, pid: 4242, safeSessionId: "thread-1"), "4242.json")
         XCTAssertEqual(sessionFileName(input: legacy, pid: 4242, safeSessionId: "thread-1"), "4242.json")
     }
+
+    // MARK: - Per-subagent activity attribution
+
+    private func preToolUse(
+        agentId: String? = nil, agentType: String? = nil,
+        toolName: String, detailKey: String, detailValue: String
+    ) -> String {
+        let agentFields = agentId.map { id in
+            let type = agentType.map { ", \"agent_type\": \"\($0)\"" } ?? ""
+            return ", \"agent_id\": \"\(id)\"\(type)"
+        } ?? ""
+        return """
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "PreToolUse",
+          "tool_name": "\(toolName)",
+          "tool_input": {"\(detailKey)": "\(detailValue)"}\(agentFields)
+        }
+        """
+    }
+
+    func testAgentScopedPreToolUseUpdatesTheChildAndLeavesTheParentsToolAlone() throws {
+        try handleHook(
+            preToolUse(toolName: "Read", detailKey: "file_path", detailValue: "/parent.swift"),
+            hookName: "PreToolUse"
+        )
+        try handleFixture("SubagentStart")
+        try handleHook(
+            preToolUse(
+                agentId: "agent-abc-123", agentType: "general-purpose",
+                toolName: "Grep", detailKey: "pattern", detailValue: "PopupTab"
+            ),
+            hookName: "PreToolUse"
+        )
+
+        let session = try loadSession()
+        XCTAssertEqual(session.lastTool, "Read")
+        XCTAssertEqual(session.lastToolDetail, "/parent.swift")
+        XCTAssertEqual(session.activeSubagents?.count, 1)
+        let child = try XCTUnwrap(session.activeSubagents?.first)
+        XCTAssertEqual(child.agentId, "agent-abc-123")
+        XCTAssertEqual(child.lastTool, "Grep")
+        XCTAssertEqual(child.lastToolDetail, "PopupTab")
+        XCTAssertNotNil(child.lastActivity)
+    }
+
+    func testAgentScopedPreToolUseCreatesAMissingChild() throws {
+        try handleFixture("SessionStart")
+        try handleHook(
+            preToolUse(
+                agentId: "unstarted-agent", agentType: "Explore",
+                toolName: "Read", detailKey: "file_path", detailValue: "/child.swift"
+            ),
+            hookName: "PreToolUse"
+        )
+
+        let session = try loadSession()
+        XCTAssertNil(session.lastTool)
+        let child = try XCTUnwrap(session.activeSubagents?.first)
+        XCTAssertEqual(child.agentId, "unstarted-agent")
+        XCTAssertEqual(child.agentType, "Explore")
+        XCTAssertEqual(child.lastTool, "Read")
+    }
+
+    func testAgentScopedPostToolUseOnlyAdvancesChildActivity() throws {
+        try handleFixture("SubagentStart")
+        try handleHook(
+            preToolUse(
+                agentId: "agent-abc-123", toolName: "Read",
+                detailKey: "file_path", detailValue: "/child.swift"
+            ),
+            hookName: "PreToolUse"
+        )
+        let afterPre = try XCTUnwrap(try loadSession().activeSubagents?.first)
+
+        try handleHook("""
+        {
+          "session_id": "test-session-001",
+          "cwd": "/tmp/test-project",
+          "hook_event_name": "PostToolUse",
+          "tool_name": "Bash",
+          "tool_input": {"command": "npm test"},
+          "agent_id": "agent-abc-123"
+        }
+        """, hookName: "PostToolUse")
+
+        let session = try loadSession()
+        XCTAssertNil(session.lastTool, "a child's PostToolUse must not write the parent's tool")
+        let child = try XCTUnwrap(session.activeSubagents?.first)
+        XCTAssertEqual(child.lastTool, "Read")
+        XCTAssertEqual(child.lastToolDetail, "/child.swift")
+        XCTAssertGreaterThanOrEqual(
+            try XCTUnwrap(child.lastActivity), try XCTUnwrap(afterPre.lastActivity)
+        )
+    }
+
+    func testParallelAgentSpawnsPairTheirDescriptionsFIFO() throws {
+        try handleFixture("SessionStart")
+        for description in ["Check the shim", "Review the tree"] {
+            try handleHook(
+                preToolUse(toolName: "Agent", detailKey: "description", detailValue: description),
+                hookName: "PreToolUse"
+            )
+        }
+        XCTAssertEqual(
+            try loadSession().pendingSubagentDescriptions, ["Check the shim", "Review the tree"]
+        )
+
+        for agentId in ["agent-1", "agent-2"] {
+            try handleHook("""
+            {
+              "session_id": "test-session-001",
+              "cwd": "/tmp/test-project",
+              "hook_event_name": "SubagentStart",
+              "agent_id": "\(agentId)",
+              "agent_type": "Explore"
+            }
+            """, hookName: "SubagentStart")
+        }
+
+        let session = try loadSession()
+        XCTAssertEqual(session.activeSubagents?.map(\.description), ["Check the shim", "Review the tree"])
+        XCTAssertNil(session.pendingSubagentDescriptions)
+    }
+
+    func testLegacyTaskToolAlsoQueuesADescription() throws {
+        try handleFixture("SessionStart")
+        try handleHook(
+            preToolUse(toolName: "Task", detailKey: "description", detailValue: "Legacy spawn"),
+            hookName: "PreToolUse"
+        )
+        try handleFixture("SubagentStart")
+
+        XCTAssertEqual(try loadSession().activeSubagents?.first?.description, "Legacy spawn")
+    }
+
+    func testAgentScopedSpawnDoesNotQueueADescriptionForItsOwnParent() throws {
+        try handleFixture("SessionStart")
+        try handleHook(
+            preToolUse(
+                agentId: "nested", agentType: "Explore",
+                toolName: "Agent", detailKey: "description", detailValue: "Nested spawn"
+            ),
+            hookName: "PreToolUse"
+        )
+
+        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+    }
+
+    func testPendingDescriptionsClearOnPromptStopAndSessionStart() throws {
+        func queueOne() throws {
+            try handleHook(
+                preToolUse(toolName: "Agent", detailKey: "description", detailValue: "Stale label"),
+                hookName: "PreToolUse"
+            )
+            XCTAssertEqual(try loadSession().pendingSubagentDescriptions, ["Stale label"])
+        }
+
+        try handleFixture("SessionStart")
+        try queueOne()
+        try handleFixture("UserPromptSubmit")
+        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+
+        try queueOne()
+        try handleFixture("Stop")
+        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+
+        try queueOne()
+        try handleFixture("SessionStart")
+        XCTAssertNil(try loadSession().pendingSubagentDescriptions)
+    }
+
+    func testPendingDescriptionQueueIsBounded() throws {
+        try handleFixture("SessionStart")
+        let overflow = HookHandler.maxPendingSubagentDescriptions + 3
+        for index in 0..<overflow {
+            try handleHook(
+                preToolUse(toolName: "Agent", detailKey: "description", detailValue: "spawn-\(index)"),
+                hookName: "PreToolUse"
+            )
+        }
+
+        let queue = try XCTUnwrap(try loadSession().pendingSubagentDescriptions)
+        XCTAssertEqual(queue.count, HookHandler.maxPendingSubagentDescriptions)
+        XCTAssertEqual(queue.first, "spawn-3", "the oldest unpaired labels are dropped first")
+        XCTAssertEqual(queue.last, "spawn-\(overflow - 1)")
+    }
+
+    func testSubagentInfoWithoutTheNewKeysStillDecodes() throws {
+        let json = """
+        {"agent_id": "legacy", "agent_type": "general-purpose", "started_at": "2026-01-01T00:00:00Z"}
+        """
+        let info = try JSONDecoder.sessionDecoder.decode(SubagentInfo.self, from: Data(json.utf8))
+        XCTAssertEqual(info.agentId, "legacy")
+        XCTAssertNil(info.description)
+        XCTAssertNil(info.lastTool)
+        XCTAssertNil(info.lastToolDetail)
+        XCTAssertNil(info.lastActivity)
+        XCTAssertEqual(info.effectiveActivity, info.startedAt)
+    }
+
+    // MARK: - Delegation in both directions
+
+    func testCodexDelegateRecordsItsClaudeParent() throws {
+        let sessionId = "codex-with-claude-parent"
+        try handleHook("""
+        {
+          "session_id": "\(sessionId)",
+          "cwd": "/tmp/p",
+          "hook_event_name": "SessionStart",
+          "harness_name": "codex"
+        }
+        """, hookName: "SessionStart", deps: makeDeps(env: [
+            "CLAUDE_CODE_CHILD_SESSION": "",
+            "CLAUDE_CODE_SESSION_ID": "parent-claude-uuid"
+        ]))
+
+        let session = try loadSession("codex-\(sessionId).json")
+        XCTAssertTrue(session.isSubagentSession)
+        XCTAssertTrue(session.hidden)
+        XCTAssertEqual(session.parentHarness, SessionData.ccSource)
+        XCTAssertEqual(session.parentHarnessSessionId, "parent-claude-uuid")
+    }
+
+    func testCodexSpawnedClaudeSessionIsHiddenAndStampedWithItsCodexParent() throws {
+        try handleHook("""
+        {
+          "session_id": "codex-spawned-claude",
+          "cwd": "/tmp/p",
+          "hook_event_name": "SessionStart",
+          "harness_name": "cc"
+        }
+        """, hookName: "SessionStart", deps: makeDeps(env: [
+            "CODEX_THREAD_ID": "codex-thread-uuid",
+            "CODEX_SANDBOX": "seatbelt"
+        ]))
+
+        let session = try loadSession()
+        XCTAssertTrue(session.isSubagentSession)
+        XCTAssertTrue(session.hidden)
+        XCTAssertEqual(session.parentHarness, SessionData.codexSource)
+        XCTAssertEqual(session.parentHarnessSessionId, "codex-thread-uuid")
+    }
+
+    func testClaudeSessionWithoutACodexThreadIdStaysVisibleAndUnlinked() throws {
+        try handleHook("""
+        {
+          "session_id": "plain-claude",
+          "cwd": "/tmp/p",
+          "hook_event_name": "SessionStart",
+          "harness_name": "cc"
+        }
+        """, hookName: "SessionStart", deps: makeDeps(env: [
+            "CODEX_THREAD_ID": "",
+            "CLAUDE_CODE_SESSION_ID": "plain-claude"
+        ]))
+
+        let session = try loadSession()
+        XCTAssertFalse(session.isSubagentSession)
+        XCTAssertFalse(session.hidden)
+        XCTAssertNil(session.parentHarness)
+        XCTAssertNil(session.parentHarnessSessionId)
+    }
+
+    func testParentLinkageSurvivesALaterEventWithoutEnvironmentEvidence() throws {
+        let input = """
+        {
+          "session_id": "codex-spawned-claude-2",
+          "cwd": "/tmp/p",
+          "hook_event_name": "SessionStart",
+          "harness_name": "cc"
+        }
+        """
+        try handleHook(input, hookName: "SessionStart", deps: makeDeps(env: [
+            "CODEX_THREAD_ID": "codex-thread-uuid"
+        ]))
+
+        try handleHook(
+            input.replacingOccurrences(of: "SessionStart", with: "UserPromptSubmit"),
+            hookName: "UserPromptSubmit",
+            deps: makeDeps(env: [:])
+        )
+        var session = try loadSession()
+        XCTAssertEqual(session.parentHarness, SessionData.codexSource)
+        XCTAssertEqual(session.parentHarnessSessionId, "codex-thread-uuid")
+
+        try handleHook(
+            input.replacingOccurrences(of: "SessionStart", with: "SessionEnd"),
+            hookName: "SessionEnd",
+            deps: makeDeps(env: [:])
+        )
+        session = try loadSession()
+        XCTAssertEqual(session.parentHarness, SessionData.codexSource)
+        XCTAssertEqual(session.parentHarnessSessionId, "codex-thread-uuid")
+    }
+
+    func testSessionEndStampsTheCodexParentOnAPreviouslyUnlinkedClaudeRecord() throws {
+        let input = """
+        {
+          "session_id": "codex-spawned-claude-3",
+          "cwd": "/tmp/p",
+          "hook_event_name": "SessionStart",
+          "harness_name": "cc"
+        }
+        """
+        try handleHook(input, hookName: "SessionStart")
+        XCTAssertFalse(try loadSession().hidden)
+
+        try handleHook(
+            input.replacingOccurrences(of: "SessionStart", with: "SessionEnd"),
+            hookName: "SessionEnd",
+            deps: makeDeps(env: ["CODEX_THREAD_ID": "codex-thread-uuid"])
+        )
+
+        let session = try loadSession()
+        XCTAssertTrue(session.isSubagentSession)
+        XCTAssertTrue(session.hidden)
+        XCTAssertEqual(session.parentHarness, SessionData.codexSource)
+        XCTAssertEqual(session.parentHarnessSessionId, "codex-thread-uuid")
+        XCTAssertNotNil(session.endedAt)
+    }
 }

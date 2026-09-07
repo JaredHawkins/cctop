@@ -278,4 +278,79 @@ final class HookInputTests: XCTestCase {
             "CLAUDE_CODE_CHILD_SESSION": ""
         ]))
     }
+
+    private func hookInput(harness: String, isSubagent: Bool = false) throws -> HookInput {
+        let subagentField = isSubagent ? ",\"is_subagent\":true" : ""
+        return try JSONDecoder().decode(HookInput.self, from: Data("""
+        {"session_id":"s","cwd":"/tmp","hook_event_name":"SessionStart","harness_name":"\(harness)"\(subagentField)}
+        """.utf8))
+    }
+
+    func testCodexDelegateCarriesItsClaudeParentWhenTheSessionIdIsExported() throws {
+        let codex = try hookInput(harness: "codex")
+
+        XCTAssertEqual(
+            codex.delegatedSessionEvidence(environment: [
+                "CLAUDE_CODE_CHILD_SESSION": "",
+                "CLAUDE_CODE_SESSION_ID": "parent-uuid"
+            ]),
+            HookInput.DelegatedSessionEvidence(
+                parentHarness: SessionData.ccSource, parentHarnessSessionId: "parent-uuid"
+            )
+        )
+        // Marker alone still delegates; it just cannot name a parent.
+        XCTAssertEqual(
+            codex.delegatedSessionEvidence(environment: ["CLAUDE_CODE_CHILD_SESSION": ""]),
+            .unattributed
+        )
+        XCTAssertEqual(
+            codex.delegatedSessionEvidence(environment: [
+                "CLAUDE_CODE_CHILD_SESSION": "", "CLAUDE_CODE_SESSION_ID": ""
+            ]),
+            .unattributed
+        )
+    }
+
+    func testClaudeHookInheritingCodexThreadIdIsDelegatedToThatThread() throws {
+        let claude = try hookInput(harness: "cc")
+
+        XCTAssertEqual(
+            claude.delegatedSessionEvidence(environment: [
+                "CODEX_THREAD_ID": "thread-uuid", "CODEX_SANDBOX": "seatbelt"
+            ]),
+            HookInput.DelegatedSessionEvidence(
+                parentHarness: SessionData.codexSource, parentHarnessSessionId: "thread-uuid"
+            )
+        )
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: ["CODEX_THREAD_ID": ""]))
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: [:]))
+    }
+
+    /// Claude exports CLAUDE_CODE_SESSION_ID for its own children, so for a `cc` hook it is
+    /// the session's own reference — never parent evidence.
+    func testClaudeOwnSessionIdIsNotParentEvidenceForAClaudeHook() throws {
+        let claude = try hookInput(harness: "cc")
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: [
+            "CLAUDE_CODE_CHILD_SESSION": "", "CLAUDE_CODE_SESSION_ID": "s"
+        ]))
+    }
+
+    func testCodexThreadIdDoesNotDelegateACodexHookToItself() throws {
+        let codex = try hookInput(harness: "codex")
+        XCTAssertNil(codex.delegatedSessionEvidence(environment: ["CODEX_THREAD_ID": "s"]))
+    }
+
+    func testExplicitSubagentPayloadStaysDelegatedWithoutAParent() throws {
+        let opencode = try hookInput(harness: "opencode", isSubagent: true)
+        XCTAssertEqual(opencode.delegatedSessionEvidence(environment: [:]), .unattributed)
+
+        // An env rule that also matches still wins and supplies the parent.
+        let claude = try hookInput(harness: "cc", isSubagent: true)
+        XCTAssertEqual(
+            claude.delegatedSessionEvidence(environment: ["CODEX_THREAD_ID": "thread-uuid"]),
+            HookInput.DelegatedSessionEvidence(
+                parentHarness: SessionData.codexSource, parentHarnessSessionId: "thread-uuid"
+            )
+        )
+    }
 }

@@ -2438,9 +2438,17 @@ final class SessionTests: XCTestCase {
             endedAt: isoDate("2026-02-08T13:00:00.789Z"),
             disconnectedAt: isoDate("2026-02-08T12:30:00.012Z"),
             activeSubagents: [
-                SubagentInfo(agentId: "agent-1", agentType: "explore", startedAt: isoDate("2026-02-08T12:10:00.345Z"))
+                SubagentInfo(
+                    agentId: "agent-1", agentType: "explore",
+                    startedAt: isoDate("2026-02-08T12:10:00.345Z"),
+                    description: "Check the shim", lastTool: "Grep", lastToolDetail: "PopupTab",
+                    lastActivity: isoDate("2026-02-08T12:12:00.678Z")
+                )
             ],
+            pendingSubagentDescriptions: ["Review the tree"],
             isSubagentSession: true,
+            parentHarness: "cc",
+            parentHarnessSessionId: "parent-fixture|raw",
             hidden: true,
             createdByHookVersion: "0.16.0",
             lastWrittenByHookVersion: "0.17.2"
@@ -2462,7 +2470,7 @@ final class SessionTests: XCTestCase {
     // added or removed: wire it through CodingKeys, init(from:), the memberwise init, and
     // makeFullyPopulatedSession() above, then update this count.
     func testStoredPropertyCountTripwire() {
-        XCTAssertEqual(Mirror(reflecting: makeFullyPopulatedSession()).children.count, 28)
+        XCTAssertEqual(Mirror(reflecting: makeFullyPopulatedSession()).children.count, 31)
     }
 
     // Catches asymmetry between CodingKeys, init(from:), and the synthesized encode: a field

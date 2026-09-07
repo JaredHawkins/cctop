@@ -9,6 +9,7 @@ The local patch stack is documented in:
 1. `docs/local-claude-codex-delegation-patch.md`
 2. `docs/local-notch-and-session-ack-patch.md`
 3. `docs/local-drop-and-menubar-placement-patch.md`
+4. `docs/local-agents-view-patch.md`
 
 ## Critical packaging invariant
 

@@ -1380,10 +1380,10 @@ final class WorktreeCleanupTests: XCTestCase {
     func testPopupTabAvailabilityIncludesSessionStateSelectorsAndProductSurfaces() {
         XCTAssertEqual(
             PopupTab.allCases,
-            [.active, .idle, .acknowledged, .dropped, .recent, .cleanup]
+            [.active, .idle, .acknowledged, .dropped, .agents, .recent, .cleanup]
         )
         XCTAssertEqual(PopupTab.primaryCases, [.active, .idle, .acknowledged, .dropped])
-        XCTAssertEqual(PopupTab.secondaryCases, [.recent, .cleanup])
+        XCTAssertEqual(PopupTab.secondaryCases, [.agents, .recent, .cleanup])
     }
 
     @MainActor
@@ -1415,6 +1415,19 @@ final class WorktreeCleanupTests: XCTestCase {
         XCTAssertEqual(StatusCounts(userSessions: view.userSessions).total, 1)
     }
 
+    @MainActor
+    func testAgentsBadgeIsInertOnDroppedRowsBecauseTheyAreNotAgentsViewRoots() throws {
+        let view = PopupView(
+            userSessions: userSessions(fromDataFixtures: [SessionData.mock(id: "active")]),
+            droppedUserSessions: userSessions(fromDataFixtures: [SessionData.mock(id: "dropped")]),
+            updater: DisabledUpdater(),
+            pluginManager: inertPluginManager()
+        )
+
+        XCTAssertNil(view.agentsBadgeAction(for: try XCTUnwrap(view.droppedSessionRows.first)))
+        XCTAssertNotNil(view.agentsBadgeAction(for: try XCTUnwrap(view.activeSessionRows.first)))
+    }
+
     func testPopupTabHelpTextDescribesCurrentBuckets() {
         let staleIdleHours = Int(SessionDisplayPolicy.staleIdleInterval / 3_600)
 
@@ -1433,6 +1446,10 @@ final class WorktreeCleanupTests: XCTestCase {
         XCTAssertEqual(
             PopupTab.dropped.helpText,
             "Sessions removed from normal surfaces until restored or newer activity."
+        )
+        XCTAssertEqual(
+            PopupTab.agents.helpText,
+            "Sub-workers spawned by your sessions: in-process Claude subagents and delegated Claude or Codex runs."
         )
         let recentHelpText = PopupTab.recent.helpText
         XCTAssertTrue(recentHelpText.contains("Finished work"))
@@ -1464,6 +1481,10 @@ final class WorktreeCleanupTests: XCTestCase {
             PopupTab.dropped.emptyStateDetail,
             "Dropped sessions appear here until restored or they report newer activity."
         )
+        XCTAssertEqual(
+            PopupTab.agents.emptyStateDetail,
+            "Subagents and delegated runs appear here while they are active."
+        )
         let recentEmptyStateDetail = PopupTab.recent.emptyStateDetail
         XCTAssertTrue(recentEmptyStateDetail.contains("Finished work"))
         XCTAssertTrue(recentEmptyStateDetail.contains("archived desktop sessions"))
@@ -1488,7 +1509,8 @@ final class WorktreeCleanupTests: XCTestCase {
         XCTAssertEqual(PopupTab.switched(from: .active, action: .nextTab, availableTabs: tabs), .idle)
         XCTAssertEqual(PopupTab.switched(from: .idle, action: .nextTab, availableTabs: tabs), .acknowledged)
         XCTAssertEqual(PopupTab.switched(from: .acknowledged, action: .nextTab, availableTabs: tabs), .dropped)
-        XCTAssertEqual(PopupTab.switched(from: .dropped, action: .nextTab, availableTabs: tabs), .recent)
+        XCTAssertEqual(PopupTab.switched(from: .dropped, action: .nextTab, availableTabs: tabs), .agents)
+        XCTAssertEqual(PopupTab.switched(from: .agents, action: .nextTab, availableTabs: tabs), .recent)
     }
 
     func testConfirmingCleanupSelectionTargetsCleanupDetail() {

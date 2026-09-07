@@ -133,14 +133,58 @@ struct HookInput: Codable {
             == Self.codexSuggestionPromptFragmentOffset
     }
 
-    /// Claude Code marks delegated child processes with this environment key, even when
-    /// its value is empty. A Codex subprocess inherits terminal metadata from the parent
-    /// Claude session, so Ghostty metadata alone cannot distinguish it from a user-started
-    /// Codex CLI session.
+    /// Delegation evidence plus, when the environment proves it, the spawning session.
+    /// `parentHarness`/`parentHarnessSessionId` are nil for an explicit `is_subagent`
+    /// payload that carries no environment linkage.
+    struct DelegatedSessionEvidence: Equatable {
+        let parentHarness: String?
+        let parentHarnessSessionId: String?
+
+        static let unattributed = DelegatedSessionEvidence(
+            parentHarness: nil, parentHarnessSessionId: nil
+        )
+    }
+
+    /// Delegation runs in both directions:
+    ///
+    /// - Claude Code marks the child processes it launches with `CLAUDE_CODE_CHILD_SESSION`,
+    ///   even when the value is empty, and exports its own `CLAUDE_CODE_SESSION_ID`. A Codex
+    ///   subprocess inherits terminal metadata from the parent Claude session, so Ghostty
+    ///   metadata alone cannot distinguish it from a user-started Codex CLI session.
+    /// - Codex exports `CODEX_THREAD_ID` to the processes its exec tool launches, so a
+    ///   Claude session Codex spawned carries the spawning thread's own reference.
+    ///
+    /// Each rule is scoped to the opposite harness so an inherited key can never hide the
+    /// session that owns it. `CLAUDE_CODE_SESSION_ID` is deliberately not parent evidence
+    /// for a `cc` hook: Claude exports it for its own children, so it equals the session's
+    /// own reference there.
+    func delegatedSessionEvidence(environment: [String: String]) -> DelegatedSessionEvidence? {
+        if resolvedHarnessName == SessionData.codexSource,
+           environment["CLAUDE_CODE_CHILD_SESSION"] != nil {
+            let parentId = Self.nonEmpty(environment["CLAUDE_CODE_SESSION_ID"])
+            return DelegatedSessionEvidence(
+                parentHarness: parentId == nil ? nil : SessionData.ccSource,
+                parentHarnessSessionId: parentId
+            )
+        }
+        if resolvedHarnessName == SessionData.ccSource,
+           let threadId = Self.nonEmpty(environment["CODEX_THREAD_ID"]) {
+            return DelegatedSessionEvidence(
+                parentHarness: SessionData.codexSource,
+                parentHarnessSessionId: threadId
+            )
+        }
+        if isSubagentSession == true { return .unattributed }
+        return nil
+    }
+
     func hasDelegatedSessionEvidence(environment: [String: String]) -> Bool {
-        if isSubagentSession == true { return true }
-        return resolvedHarnessName == SessionData.codexSource
-            && environment["CLAUDE_CODE_CHILD_SESSION"] != nil
+        delegatedSessionEvidence(environment: environment) != nil
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
 

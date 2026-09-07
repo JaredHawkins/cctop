@@ -549,8 +549,13 @@ extension SessionManager {
         guard !repairableThreadIDs.isEmpty else { return decoded }
 
         var repairedByPath: [String: SessionData] = [:]
+        // A record carrying environment-proved parent linkage is a Claude-launched delegate.
+        // Codex's own database still calls that thread an interactive `cli`/`vscode` root with
+        // no spawn edge, so without this guard the repair would unhide it back into
+        // userSessions, counts, notifications, Navigate, the indicators, and Stream Deck.
         for (url, data) in decoded where data.hidden
             && data.isSubagentSession
+            && !data.hasDelegationParentEvidence
             && repairableThreadIDs.contains(data.sessionId) {
             withSessionLockForMaintenance(
                 sessionPath: url.path,
@@ -678,6 +683,9 @@ extension SessionManager {
         guard latest.hidden,
               latest.isSubagentSession,
               latest.isCodex,
+              // Re-checked under the lock: the file can gain parent evidence between the scan
+              // and the stamp, and that provenance always wins over Codex's own thread source.
+              !latest.hasDelegationParentEvidence,
               repairableThreadIDs.contains(latest.sessionId) else {
             return nil
         }
