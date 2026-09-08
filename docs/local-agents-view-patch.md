@@ -164,10 +164,14 @@ fails closed on anything idle or quiet.
 
 **In-process subagents** are shown only while their owning session's lifecycle is
 `.active`: a dormant or finished session cannot be running one, whatever its file
-still lists. Inside a live owner the entries stay until `SubagentStop`, because a
-subagent sitting in a 20-minute `Bash` call emits no events at all and must not
-blink out. The 30-minute `staleInterval` marker is the hint that one has gone
-quiet.
+still lists. Inside a live owner an entry shows while it has reported within
+`staleInterval` (30 minutes), or while it is blocked on a permission prompt. Past
+that it leaves the view and the card pill on the next tick. This is a view rule,
+not storage: `SubagentStop` still owns removal, and a subagent that went quiet
+inside a long tool call is back the moment it reports again. The rule exists
+because some parents never send `SubagentStop` (the ChatGPT app's Codex
+`collaboration` agents sat marked "stale" for 11 hours on 2026-09-08), and the
+view is for work happening now.
 
 `visibilityWindow` (3 hours) survives only as a backstop for what liveness cannot
 see — a missed `SubagentStop`, or a long-lived host process that outlives the work
@@ -202,12 +206,11 @@ collapses that row.
 
 ## Row detail
 
-Each group header is followed by a summary line — "1 running · 1 stale ·
-2 waiting" — from `SubworkerTree.summary(for:now:)`. Its categories are exclusive
-and ranked waiting > stale > running, so they always total the group's row count;
-the line is omitted when everything is simply running. Delegated records are never
-counted stale, because they carry their own lifecycle and status instead of being
-inferred from silence.
+Each group header is followed by a summary line — "1 running · 2 waiting" — from
+`SubworkerTree.summary(for:now:)`. Its categories are exclusive, so they always
+total the group's row count; the line is omitted when everything is simply
+running. There is no "stale" category: anything silent past the cutoff is no
+longer a row.
 
 Every row expands in place on click, with a rotating chevron affordance.
 Expansion is `@State` inside `SubworkerGroupView`, keyed by node id; nothing is
@@ -260,8 +263,7 @@ permission-colored dot on its title line.
   session cards stay still.
 - **Live rows tick.** `SubworkerTree.elapsedDescription(since:asOf:)` shows
   `4m 12s` under an hour and `1h 04m` above it, refreshed by the panel's existing
-  10-second tick. A stale row keeps the coarse relative wording plus "· stale",
-  where the exact second stopped being interesting.
+  10-second tick. Every row on screen is live by construction.
 
 ## Regression coverage
 

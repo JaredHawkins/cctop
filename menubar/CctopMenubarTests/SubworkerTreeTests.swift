@@ -273,16 +273,37 @@ final class SubworkerTreeTests: XCTestCase {
         return copy
     }
 
-    func testInProcessSubagentJustInsideTheWindowStaysAndReadsStale() {
+    /// The view is for work happening now: a subagent silent past `staleInterval` leaves the
+    /// tree (and the card pill) even though its parent never reported a `SubagentStop`. A
+    /// row blocked on a permission prompt is the one exception, up to the 3-hour backstop.
+    func testInProcessSubagentSilentPastTheStaleIntervalLeavesUnlessWaiting() {
         let now = Date()
-        let inside = agent("inside", startedAt: now.addingTimeInterval(-(SubworkerTree.visibilityWindow - 60)))
-        let ccRoot = root(harnessSessionId: "cc-1", subagents: [inside])
+        let silent = agent("silent", startedAt: now.addingTimeInterval(-(SubworkerTree.staleInterval + 60)))
+        var blocked = agent("blocked", startedAt: now.addingTimeInterval(-(SubworkerTree.staleInterval + 60)))
+        blocked.waitingMessage = "Allow Bash: make swift-test"
+        var reporting = agent("reporting", startedAt: now.addingTimeInterval(-7_200))
+        reporting.lastActivity = now.addingTimeInterval(-60)
+        let justInside = agent("inside", startedAt: now.addingTimeInterval(-(SubworkerTree.staleInterval - 60)))
+        let ccRoot = root(harnessSessionId: "cc-1", subagents: [silent, blocked, reporting, justInside])
 
         let tree = buildTree(roots: [ccRoot], delegated: [], now: now)
 
-        XCTAssertEqual(tree.childCount, 1)
-        XCTAssertTrue(SubworkerTree.isStale(inside, now: now), "still marked, not dropped")
-        XCTAssertEqual(SubworkerTree.summary(for: tree.groups[0], now: now).stale, 1)
+        let shown = tree.groups[0].nodes.compactMap { node -> String? in
+            if case .inProcess(let info) = node.kind { return info.agentId }
+            return nil
+        }
+        XCTAssertEqual(shown.sorted(), ["blocked", "inside", "reporting"])
+        XCTAssertEqual(SubworkerTree.summary(for: tree.groups[0], now: now), SubworkerGroupSummary(running: 2, waiting: 1))
+        XCTAssertEqual(
+            SubworkerTree.badge(for: tree.groups[0]).count, 3,
+            "the card pill drops the silent one on the same tick"
+        )
+
+        // Silence never deletes: the same entry is back the moment it reports again.
+        var revived = silent
+        revived.lastActivity = now
+        let revivedTree = buildTree(roots: [root(harnessSessionId: "cc-1", subagents: [revived])], delegated: [], now: now)
+        XCTAssertEqual(revivedTree.childCount, 1)
     }
 
     func testInProcessSubagentPastTheWindowLeavesTheTree() {
@@ -483,28 +504,27 @@ final class SubworkerTreeTests: XCTestCase {
         return SubworkerTree.summary(for: tree.groups[0], now: now).text
     }
 
-    func testGroupSummaryCountsRunningStaleAndWaitingExclusively() {
+    func testGroupSummaryCountsRunningAndWaitingExclusively() {
         let now = Date()
         var waiting = agent("waiting", startedAt: now.addingTimeInterval(-10))
         waiting.waitingMessage = "Allow Bash: make swift-test"
-        // Silent long enough to be stale, but a pending prompt outranks staleness.
+        // Silent long past the cutoff, but a pending prompt keeps it on screen and counted.
         var waitingAndSilent = agent("both", startedAt: now.addingTimeInterval(-7_200))
         waitingAndSilent.waitingMessage = "Allow Bash: rm -rf build"
-        let stale = agent("stale", startedAt: now.addingTimeInterval(-7_200))
+        let silent = agent("silent", startedAt: now.addingTimeInterval(-7_200))
         let running = agent("running", startedAt: now.addingTimeInterval(-20))
         let ccRoot = root(
             harnessSessionId: "cc-1",
-            subagents: [waiting, waitingAndSilent, stale, running]
+            subagents: [waiting, waitingAndSilent, silent, running]
         )
 
-        let tree = buildTree(roots: [ccRoot], delegated: [])
+        let tree = buildTree(roots: [ccRoot], delegated: [], now: now)
         let summary = SubworkerTree.summary(for: tree.groups[0], now: now)
 
         XCTAssertEqual(summary.running, 1)
-        XCTAssertEqual(summary.stale, 1)
         XCTAssertEqual(summary.waiting, 2)
-        XCTAssertEqual(summary.text, "1 running \u{00B7} 1 stale \u{00B7} 2 waiting")
-        XCTAssertEqual(summary.running + summary.stale + summary.waiting, tree.groups[0].nodes.count)
+        XCTAssertEqual(summary.text, "1 running \u{00B7} 2 waiting")
+        XCTAssertEqual(summary.running + summary.waiting, tree.groups[0].nodes.count, "the silent one is not a row")
     }
 
     func testGroupSummaryIsOmittedWhenEverythingIsRunning() {

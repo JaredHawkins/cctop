@@ -11,16 +11,14 @@ enum SubworkerKind: Equatable {
 /// Counts behind a group's summary line.
 struct SubworkerGroupSummary: Equatable {
     let running: Int
-    let stale: Int
     let waiting: Int
 
     /// Nil when "N running" is the whole story, since the row count already says that.
     var text: String? {
-        guard stale > 0 || waiting > 0 else { return nil }
+        guard waiting > 0 else { return nil }
         var parts: [String] = []
         if running > 0 { parts.append("\(running) running") }
-        if stale > 0 { parts.append("\(stale) stale") }
-        if waiting > 0 { parts.append("\(waiting) waiting") }
+        parts.append("\(waiting) waiting")
         return parts.joined(separator: " \u{00B7} ")
     }
 }
@@ -39,8 +37,12 @@ enum SubworkerTree {
     /// forever. Claude → Codex → Claude is the deepest chain observed in practice.
     static let maxDepth = 3
 
-    /// A sub-worker with no observed activity for this long is rendered as stale rather
-    /// than deleted: the parent may simply not have reported a Stop yet.
+    /// An in-process subagent with no observed activity for this long leaves the view (not
+    /// storage): the view is for work happening now, and a parent that never reports a
+    /// `SubagentStop` (the ChatGPT app's Codex `collaboration` agents sat "stale" for 11 h on
+    /// 2026-09-08) must not pin finished work on screen. A row blocked on a permission prompt
+    /// is exempt; silence is exactly what waiting looks like. A subagent that goes quiet
+    /// inside a long tool call comes back on its next event, because nothing is deleted.
     static let staleInterval: TimeInterval = 1_800
 
     /// Backstop only. Liveness decides what is shown; this catches the cases liveness
@@ -176,23 +178,21 @@ enum SubworkerTree {
         return Snapshot(groups: groups)
     }
 
-    /// One line of "what is this group doing" under its header. Categories are exclusive and
-    /// ranked waiting > stale > running, so the counts always add up to the group's node count.
+    /// One line of "what is this group doing" under its header. Categories are exclusive, so
+    /// the counts always add up to the group's node count. Nothing stale can be in a group:
+    /// `visibleSubagents(of:now:)` has already dropped it.
     static func summary(for group: Group, now: Date) -> SubworkerGroupSummary {
         var running = 0
-        var stale = 0
         var waiting = 0
         for node in group.nodes {
             switch node.kind {
             case .inProcess(let info):
-                if info.waitingMessage != nil { waiting += 1 } else if isStale(info, now: now) { stale += 1 } else { running += 1 }
+                if info.waitingMessage != nil { waiting += 1 } else { running += 1 }
             case .delegated(let data):
-                // A delegated record has its own lifecycle and status, so cctop never has to
-                // guess staleness from silence the way it does for an in-process subagent.
                 if data.status == .waitingPermission { waiting += 1 } else { running += 1 }
             }
         }
-        return SubworkerGroupSummary(running: running, stale: stale, waiting: waiting)
+        return SubworkerGroupSummary(running: running, waiting: waiting)
     }
 
     static func isStale(_ info: SubagentInfo, now: Date) -> Bool {
@@ -204,12 +204,16 @@ enum SubworkerTree {
     /// not there.
     ///
     /// A dormant or finished session cannot be running an in-process subagent, whatever its
-    /// file still lists. Inside a live owner the entries stay until `SubagentStop`, because a
-    /// subagent inside a 20-minute Bash call emits nothing at all; the 30-minute stale marker
-    /// is the hint and the visibility window the backstop.
+    /// file still lists. Inside a live owner an entry shows while it has reported within
+    /// `staleInterval`, or while it is blocked on a permission prompt (then the 3-hour
+    /// backstop applies). Entries leave the view, never storage: `SubagentStop` still owns
+    /// removal, and a quiet subagent reappears on its next event.
     static func visibleSubagents(of data: SessionData, now: Date) -> [SubagentInfo] {
         guard data.lifecycle == .active else { return [] }
-        return (data.activeSubagents ?? []).filter { isWithinVisibilityWindow($0, now: now) }
+        return (data.activeSubagents ?? []).filter { info in
+            guard isWithinVisibilityWindow(info, now: now) else { return false }
+            return info.waitingMessage != nil || !isStale(info, now: now)
+        }
     }
 
     /// A row whose last tool event is this fresh reads as moving right now.

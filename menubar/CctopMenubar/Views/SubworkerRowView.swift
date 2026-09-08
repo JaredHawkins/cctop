@@ -65,7 +65,7 @@ struct SubworkerRowView: View {
                 .accessibilityHidden(true)
             Text(title)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isStale ? Color.textSecondary : Color.textPrimary)
+                .foregroundStyle(Color.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             if case .delegated(let session) = node.kind {
@@ -192,11 +192,6 @@ struct SubworkerRowView: View {
         return info.description
     }
 
-    private var isStale: Bool {
-        guard case .inProcess(let info) = node.kind else { return false }
-        return SubworkerTree.isStale(info, now: relativeTimeNow)
-    }
-
     private var isWaiting: Bool {
         switch node.kind {
         case .inProcess(let info): return info.waitingMessage != nil
@@ -204,24 +199,18 @@ struct SubworkerRowView: View {
         }
     }
 
-    private var secondaryColor: Color {
-        isStale ? Color.textMuted : Color.textSecondary
-    }
+    private var secondaryColor: Color { Color.textSecondary }
 
     private var isActivelyWorking: Bool {
         SubworkerTree.isActivelyWorking(node.kind, now: relativeTimeNow)
     }
 
-    /// Live rows tick a precise elapsed time; a stale row keeps the panel's coarse relative
-    /// wording, where the exact second stopped being interesting.
+    /// Every row on screen is live by construction, so every row ticks a precise elapsed time.
     private var elapsedText: String {
         let started: Date
         switch node.kind {
         case .inProcess(let info): started = info.startedAt
         case .delegated(let session): started = session.startedAt
-        }
-        guard !isStale else {
-            return "\(started.relativeDescription(asOf: relativeTimeNow)) \u{00B7} stale"
         }
         return SubworkerTree.elapsedDescription(since: started, asOf: relativeTimeNow)
     }
