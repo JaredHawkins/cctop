@@ -71,6 +71,7 @@ struct SubworkerRowView: View {
             if case .delegated(let session) = node.kind {
                 SourceBadgeView(badge: session.agentBadge)
                     .fixedSize(horizontal: true, vertical: false)
+                AccountMarkView(session: session)
             }
             if let subtitle {
                 Text(subtitle)

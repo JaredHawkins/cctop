@@ -395,6 +395,37 @@ final class HookInputTests: XCTestCase {
         )
     }
 
+    /// The login is read from the harness's own home variable, or an explicit override.
+    func testAccountEvidenceIsScopedToTheHarnessOwnHome() throws {
+        let claude = try hookInput(harness: "cc")
+        XCTAssertEqual(
+            claude.accountEvidence(environment: ["CLAUDE_CONFIG_DIR": "/Users/j/.claude-ent"]), "klick"
+        )
+        XCTAssertNil(claude.accountEvidence(environment: ["CLAUDE_CONFIG_DIR": "/Users/j/.claude"]))
+        // A Klick Claude session exports CODEX_HOME for its children; that is not its own login.
+        XCTAssertNil(claude.accountEvidence(environment: ["CODEX_HOME": "/Users/j/.codex-klick"]))
+        XCTAssertNil(claude.accountEvidence(environment: [:]))
+
+        let codex = try hookInput(harness: "codex")
+        XCTAssertEqual(codex.accountEvidence(environment: ["CODEX_HOME": "/Users/j/.codex-klick"]), "klick")
+        XCTAssertNil(codex.accountEvidence(environment: ["CODEX_HOME": "/Users/j/.codex"]))
+        XCTAssertNil(codex.accountEvidence(environment: ["CLAUDE_CONFIG_DIR": "/Users/j/.claude-ent"]))
+    }
+
+    func testExplicitAccountOverrideIsSanitized() throws {
+        let claude = try hookInput(harness: "cc")
+        XCTAssertEqual(claude.accountEvidence(environment: ["CCTOP_ACCOUNT": "Klick"]), "klick")
+        XCTAssertEqual(claude.accountEvidence(environment: ["CCTOP_ACCOUNT": "../acme corp!"]), "acmecorp")
+        XCTAssertNil(claude.accountEvidence(environment: ["CCTOP_ACCOUNT": "  "]))
+        XCTAssertNil(claude.accountEvidence(environment: ["CCTOP_ACCOUNT": "///"]))
+        XCTAssertEqual(
+            claude.accountEvidence(environment: [
+                "CCTOP_ACCOUNT": "personal2", "CLAUDE_CONFIG_DIR": "/Users/j/.claude-ent"
+            ]),
+            "personal2", "explicit override wins"
+        )
+    }
+
     func testExplicitSubagentPayloadStaysDelegatedWithoutAParent() throws {
         let opencode = try hookInput(harness: "opencode", isSubagent: true)
         XCTAssertEqual(opencode.delegatedSessionEvidence(environment: [:]), .unattributed)

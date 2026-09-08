@@ -126,6 +126,7 @@ struct SubworkerGroupHeaderView: View {
                 .truncationMode(.tail)
             SourceBadgeView(badge: session.agentBadge)
                 .fixedSize(horizontal: true, vertical: false)
+            AccountMarkView(session: session)
             Spacer(minLength: 0)
             SubworkerStatusLabel(session: session)
             Text(session.lastActivity.relativeDescription(asOf: relativeTimeNow))

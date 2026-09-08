@@ -117,6 +117,7 @@ struct SessionCardView: View {
                 SourceBadgeView(badge: session.agentBadge)
                     .fixedSize(horizontal: true, vertical: false)
             }
+            AccountMarkView(session: session)
         } else {
             if let name = session.sessionName, name != session.projectName {
                 Text(session.projectName)
@@ -131,6 +132,7 @@ struct SessionCardView: View {
                 metaSeparator
                 SourceBadgeView(badge: session.agentBadge)
             }
+            AccountMarkView(session: session)
         }
     }
 

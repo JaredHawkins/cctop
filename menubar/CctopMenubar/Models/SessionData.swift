@@ -361,6 +361,9 @@ struct SessionData: Codable, Identifiable, Equatable {
     /// The spawning session's raw, unsanitized harness reference. Same rules as
     /// `harnessSessionId`: evidence for parent linkage, never cctop identity.
     var parentHarnessSessionId: String?
+    /// Login the harness runs under (`"klick"`), stamped from the hook environment. Nil is
+    /// the default account and is never written. Never cleared by a later event.
+    var account: String?
     var hidden: Bool
     var createdByHookVersion: String?
     var lastWrittenByHookVersion: String?
@@ -412,6 +415,12 @@ struct SessionData: Codable, Identifiable, Equatable {
     /// True when a hook proved from its own process environment that another harness's
     /// session spawned this one. This provenance is first-hand and outranks a client's
     /// later self-report, so sticky-classification repair must not clear it.
+    /// One-letter monogram for the account mark ("K" for klick); nil on the default account.
+    var accountMonogram: String? {
+        guard let account, let first = account.first else { return nil }
+        return String(first).uppercased()
+    }
+
     var hasDelegationParentEvidence: Bool {
         parentHarness != nil && parentHarnessSessionId != nil
     }
@@ -442,6 +451,7 @@ struct SessionData: Codable, Identifiable, Equatable {
         case isSubagentSession = "is_subagent"
         case parentHarness = "parent_harness"
         case parentHarnessSessionId = "parent_harness_session_id"
+        case account
         case hidden
         case createdByHookVersion = "created_by_hook_version"
         case lastWrittenByHookVersion = "last_written_by_hook_version"
@@ -480,6 +490,7 @@ struct SessionData: Codable, Identifiable, Equatable {
         isSubagentSession = try container.decodeIfPresent(Bool.self, forKey: .isSubagentSession) ?? false
         parentHarness = try container.decodeIfPresent(String.self, forKey: .parentHarness)
         parentHarnessSessionId = try container.decodeIfPresent(String.self, forKey: .parentHarnessSessionId)
+        account = try container.decodeIfPresent(String.self, forKey: .account)
         hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
         createdByHookVersion = try container.decodeIfPresent(String.self, forKey: .createdByHookVersion)
         lastWrittenByHookVersion = try container.decodeIfPresent(String.self, forKey: .lastWrittenByHookVersion)
@@ -514,6 +525,7 @@ struct SessionData: Codable, Identifiable, Equatable {
         isSubagentSession: Bool = false,
         parentHarness: String? = nil,
         parentHarnessSessionId: String? = nil,
+        account: String? = nil,
         hidden: Bool = false,
         createdByHookVersion: String? = nil,
         lastWrittenByHookVersion: String? = nil
@@ -545,6 +557,7 @@ struct SessionData: Codable, Identifiable, Equatable {
         self.isSubagentSession = isSubagentSession
         self.parentHarness = parentHarness
         self.parentHarnessSessionId = parentHarnessSessionId
+        self.account = account
         self.hidden = hidden
         self.createdByHookVersion = createdByHookVersion
         self.lastWrittenByHookVersion = lastWrittenByHookVersion

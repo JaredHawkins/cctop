@@ -18,7 +18,8 @@ extension SessionData {
         terminal: TerminalInfo? = TerminalInfo(program: "Code", sessionId: nil, tty: nil),
         source: String? = nil,
         activeSubagents: [SubagentInfo]? = nil,
-        desktopProjectName: String? = nil
+        desktopProjectName: String? = nil,
+        account: String? = nil
     ) -> SessionData {
         var session = SessionData(
             sessionId: id,
@@ -42,6 +43,7 @@ extension SessionData {
         )
         session.sessionName = sessionName
         session.desktopProjectName = desktopProjectName
+        session.account = account
         return session
     }
 

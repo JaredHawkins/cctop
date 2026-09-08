@@ -334,6 +334,10 @@ when you glance at it from peripheral vision.
 
 All source labels render as neutral metadata so the project name and session state stay primary. Classification logic lives in `Session.agentBadge` (`Models/AgentBadge.swift`).
 
+#### Account mark (`AccountMarkView`, same file)
+
+One-letter monogram (8 pt bold rounded, `textMuted` @ 0.9) in a 12×12 hairline square (`textMuted` @ 0.55, radius 3), placed immediately after the source badge on session cards, the Agents group header, and delegated Agents rows. Renders nothing on the default account, so it appears only when a Klick session or delegate is present. Data: `SessionData.account` (see `docs/session-files.md`).
+
 ### Header bar (`HeaderView.swift`)
 
 | Property       | Value                                                              |

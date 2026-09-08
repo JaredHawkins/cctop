@@ -80,6 +80,9 @@ enum HookHandler {
                 data.isSubagentSession = true
                 applyParentHarnessEvidence(&data, evidence: evidence)
             }
+            if let account = input.accountEvidence(environment: deps.environment()) {
+                data.account = account
+            }
             if data.shouldAutoHide || (event == .userPromptSubmit && input.hasCodexProjectSuggestionEvidence) { data.hidden = true }
             data.markWrittenByHook(version: Config.hookVersion, isNewSessionFile: isNewSessionFile)
 
@@ -629,6 +632,9 @@ extension HookHandler {
                 data.isSubagentSession = true
                 data.hidden = true
                 applyParentHarnessEvidence(&data, evidence: evidence)
+            }
+            if let account = input.accountEvidence(environment: deps.environment()) {
+                data.account = account
             }
             data.markWrittenByHook(version: Config.hookVersion, isNewSessionFile: false)
             do {

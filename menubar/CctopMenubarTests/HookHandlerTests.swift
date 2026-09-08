@@ -1621,6 +1621,41 @@ final class HookHandlerTests: XCTestCase {
         XCTAssertEqual(session.terminal?.program, "ghostty")
     }
 
+    func testKlickClaudeSessionIsStampedWithItsAccountAndKeepsItWithoutEvidence() throws {
+        let sessionId = "klick-claude"
+        try handleHook("""
+        {
+          "session_id": "\(sessionId)",
+          "cwd": "/tmp/p",
+          "hook_event_name": "SessionStart",
+          "harness_name": "cc"
+        }
+        """, hookName: "SessionStart", deps: makeDeps(env: [
+            "CLAUDE_CONFIG_DIR": "/Users/j/.claude-ent"
+        ]))
+        var session = try loadSession()
+        XCTAssertEqual(session.account, "klick")
+        XCTAssertEqual(session.accountMonogram, "K")
+        XCTAssertFalse(session.hidden, "the account mark never hides a session")
+
+        // A later event without the variable (e.g. a hook spawned differently) keeps the stamp.
+        try handleHook("""
+        {"session_id":"\(sessionId)","cwd":"/tmp/p","hook_event_name":"UserPromptSubmit","harness_name":"cc","prompt":"x"}
+        """, hookName: "UserPromptSubmit", deps: makeDeps(env: [:]))
+        session = try loadSession()
+        XCTAssertEqual(session.account, "klick")
+    }
+
+    func testPersonalSessionWritesNoAccountField() throws {
+        let sessionId = "personal-claude"
+        try handleHook("""
+        {"session_id":"\(sessionId)","cwd":"/tmp/p","hook_event_name":"SessionStart","harness_name":"cc"}
+        """, hookName: "SessionStart", deps: makeDeps(env: ["CLAUDE_CONFIG_DIR": "/Users/j/.claude"]))
+        XCTAssertNil(try loadSession().account)
+        let raw = try String(contentsOfFile: sessionFilePath("4242.json"))
+        XCTAssertFalse(raw.contains("\"account\""), "nil is the default and is not written")
+    }
+
     func testExplicitCodexDesktopAndGhosttySessionsRemainVisible() throws {
         let desktopId = "explicit-codex-desktop"
         try handleHook("""

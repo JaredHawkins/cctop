@@ -369,6 +369,23 @@ Both fields are stamped only when the hook process environment proves the link,
 and a later event that lacks that evidence never clears them. Missing fields
 mean cctop has no parent evidence, not that the record is a root.
 
+### `account`
+
+Type: `string`
+
+Default: `null` when omitted (the default, personal login).
+
+Which login the harness runs under, stamped from the hook process environment:
+`CCTOP_ACCOUNT` when set (lowercased, alphanumeric, at most 16 characters),
+otherwise `"klick"` when the harness's own home variable (`CLAUDE_CONFIG_DIR`
+for `cc`, `CODEX_HOME` for `codex`) ends in `.claude-ent` or contains `klick`.
+The rule is scoped to the harness's own variable so a Klick Claude session that
+exports `CODEX_HOME` for its children does not mislabel itself. Never cleared by
+a later event. Rendered as a one-letter monogram next to the source badge on
+session cards, the Agents group header, and delegated Agents rows; in-process
+subagents inherit their parent's record. The ChatGPT desktop app's Codex has no
+home variable and always reads as the default account.
+
 ### `is_subagent`
 
 Type: `boolean`

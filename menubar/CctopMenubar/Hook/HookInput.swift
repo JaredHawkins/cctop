@@ -179,6 +179,37 @@ struct HookInput: Codable {
         return nil
     }
 
+    /// Which login the harness is running under, from the hook process environment. Nil means
+    /// the default (personal) account and is never written. `CCTOP_ACCOUNT` is an explicit
+    /// override for any harness; otherwise the rule is scoped to the harness's own home
+    /// variable, so a Klick Claude session that exports `CODEX_HOME` for its children does not
+    /// mislabel itself, and a Codex run never reads Claude's config dir. Values are lowercased
+    /// and restricted to a short alphanumeric token so a stray path can never become a label.
+    static let explicitAccountKey = "CCTOP_ACCOUNT"
+    static let klickAccount = "klick"
+
+    func accountEvidence(environment: [String: String]) -> String? {
+        if let explicit = Self.nonEmpty(environment[Self.explicitAccountKey]) {
+            return Self.sanitizedAccount(explicit)
+        }
+        let home: String?
+        switch resolvedHarnessName {
+        case SessionData.ccSource: home = environment["CLAUDE_CONFIG_DIR"]
+        case SessionData.codexSource: home = environment["CODEX_HOME"]
+        default: home = nil
+        }
+        guard let home = Self.nonEmpty(home) else { return nil }
+        let leaf = (home as NSString).lastPathComponent.lowercased()
+        if leaf == ".claude-ent" || leaf.contains(Self.klickAccount) { return Self.klickAccount }
+        return nil
+    }
+
+    private static func sanitizedAccount(_ raw: String) -> String? {
+        let token = raw.lowercased().filter { $0.isLetter || $0.isNumber }
+        guard !token.isEmpty else { return nil }
+        return String(token.prefix(16))
+    }
+
     /// Environment keys a launcher sets on purpose to name the parent it delegates on behalf
     /// of. Same-harness delegation has no native marker: a `claude -p` launched by Claude
     /// overwrites `CLAUDE_CODE_SESSION_ID` with its own id, and a nested `codex exec` does
