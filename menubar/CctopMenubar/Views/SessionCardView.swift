@@ -60,9 +60,16 @@ struct SessionCardView: View {
         .frame(height: 18)
     }
 
+    /// Widest the badge may grow before its own tail truncates, so a long activity line
+    /// never eats the whole title.
+    static let subagentBadgeMaxWidth: CGFloat = 150
+
     /// Same 10 px purple metadata as before, now carrying the busiest child's activity; it
     /// stays clickable when the panel supplies a destination. `.plain` keeps the button
     /// chrome-free, and the single truncated line keeps the title row's 18 px height.
+    /// The badge is laid out BEFORE the title (priority 1 against the title's 0): the title
+    /// has `maxWidth: .infinity`, so at a lower priority the badge collapsed to zero width
+    /// behind any title long enough to fill the row and vanished from the card.
     @ViewBuilder
     private func subagentBadgeView(_ badge: SubworkerTree.Badge) -> some View {
         let text = Text(badge.label)
@@ -70,7 +77,8 @@ struct SessionCardView: View {
             .foregroundStyle(Color.agentBadge)
             .lineLimit(1)
             .truncationMode(.tail)
-            .layoutPriority(-1)
+            .frame(maxWidth: Self.subagentBadgeMaxWidth, alignment: .trailing)
+            .layoutPriority(1)
         if let onShowAgents {
             Button(action: onShowAgents) { text }
                 .buttonStyle(.plain)

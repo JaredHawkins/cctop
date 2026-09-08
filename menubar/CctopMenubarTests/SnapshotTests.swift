@@ -650,4 +650,30 @@ final class SnapshotContractTests: XCTestCase {
             sourcesByFile["SessionCardView.swift"]?.contains("repeatForever"), false
         )
     }
+
+    /// The parent-card agent badge shares the title row with a `maxWidth: .infinity` title.
+    /// At a lower layout priority than the title it collapsed to zero width behind any
+    /// title long enough to fill the row (seen live 2026-09-08 on "GEO for Research
+    /// Publications": three agents in the tree, no badge on the card). The badge must win
+    /// the priority contest and cap its own width so the title still truncates gracefully.
+    func testSessionCardAgentBadgeOutranksTitleInLayout() throws {
+        let testsDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let cardSource = try String(
+            contentsOf: testsDirectory
+                .deletingLastPathComponent()
+                .appendingPathComponent("CctopMenubar/Views/SessionCardView.swift")
+        )
+        guard let badgeStart = cardSource.range(of: "private func subagentBadgeView("),
+              let badgeEnd = cardSource.range(of: "private var metaRow", range: badgeStart.upperBound..<cardSource.endIndex)
+        else {
+            return XCTFail("subagentBadgeView / metaRow anchors missing")
+        }
+        let badgeSource = cardSource[badgeStart.lowerBound..<badgeEnd.lowerBound]
+        XCTAssertTrue(badgeSource.contains(".layoutPriority(1)"), "badge must outrank the title")
+        XCTAssertFalse(badgeSource.contains(".layoutPriority(-1)"))
+        XCTAssertTrue(
+            badgeSource.contains("maxWidth: Self.subagentBadgeMaxWidth"),
+            "badge caps its own width so it cannot eat the title"
+        )
+    }
 }
