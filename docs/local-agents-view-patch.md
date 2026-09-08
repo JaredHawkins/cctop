@@ -123,25 +123,46 @@ Pure functions over the published projections; no file access.
   record land in a trailing **Unattributed** group, with their own subtrees
   intact.
 
-## Recency window
+## Liveness rule
 
 The tab answers "what is running under my sessions right now", not "what ran this
-week". `SubworkerTree.visibilityWindow` is 3 hours: an in-process subagent whose
-`last_activity` (or `started_at`, when it never reported one) is older than that,
-and a delegated record whose `last_activity` is older than that, leave the tree
-entirely. Without it the list fills with history — a dormant Codex delegate stays
-`is_subagent` and unfinished for its whole 14-day lifecycle retention, and an
-in-process entry survives until the parent's next `SessionStart`, so dozens of
-day-old records accumulate.
+week", so what is shown is decided by liveness, not by age.
 
-The filter runs before grouping, so an aged-out record becomes neither a node nor
-an Unattributed entry, and each record is judged on its own recency: a
-still-running grandchild of a quiet delegate surfaces as unattributed rather than
-disappearing with its parent. A root left with no children emits no group. The
-30-minute stale marker is unchanged and still applies inside the window, so a
-subagent goes stale first and drops out later. Nothing is deleted: the session
-files, lifecycle, and Cleanup are untouched, and the view uses the panel's shared
-10-second tick as its clock, so rows age out without waiting for a reload.
+A **delegated record** is shown only while its process is alive. Codex never
+sends `SessionEnd`, and the Codex lifecycle keeps a record active or dormant on
+`last_activity` age alone, so an exited `codex exec` run keeps reading "Working"
+or "Waiting" for hours — four such records sat in the view up to 166 minutes past
+their exit. The owning process is the only honest signal cctop has. Liveness uses
+the app's existing CLI evidence, `SubworkerTree.liveProcessEvidence`: the PID must
+still exist *and* still be the same process generation
+(`pidStartTime` vs `SessionData.processStartTime(pid:)`), so a reused PID cannot
+resurrect a finished delegate. The probe is injected into
+`SubworkerTree.build(roots:delegated:now:isProcessAlive:)`, which keeps the tree
+rules pure for tests; `PopupView` passes the real one. Nothing is cached across
+builds — it is one `sysctl` per delegated record on a panel that ticks every
+10 seconds.
+
+Records written before PID capture have no such evidence. For those only a record
+that claims to be mid-work — status `working` or `waiting_permission` — *and*
+reported activity within `unevidencedActivityWindow` (10 minutes) counts. That
+fails closed on anything idle or quiet.
+
+**In-process subagents** are shown only while their owning session's lifecycle is
+`.active`: a dormant or finished session cannot be running one, whatever its file
+still lists. Inside a live owner the entries stay until `SubagentStop`, because a
+subagent sitting in a 20-minute `Bash` call emits no events at all and must not
+blink out. The 30-minute `staleInterval` marker is the hint that one has gone
+quiet.
+
+`visibilityWindow` (3 hours) survives only as a backstop for what liveness cannot
+see — a missed `SubagentStop`, or a long-lived host process that outlives the work
+it was doing. Every rule is applied before grouping, so an excluded record becomes
+neither a node nor an Unattributed entry, and each record is judged on its own
+liveness: a still-running grandchild of an exited delegate surfaces as
+unattributed rather than disappearing with its parent. A root left with no
+children emits no group. Nothing is deleted: session files, lifecycle, and Cleanup
+are untouched, and the view uses the panel's shared 10-second tick as its clock,
+so rows leave without waiting for a reload.
 
 ## What the Agents selector excludes
 

@@ -332,8 +332,9 @@ block. The parent's status transition is unchanged in every case.
 
 These entries are persistence, not presentation: they stay in the file until the
 subagent stops or the parent's next `SessionStart`. cctop's Agents view applies
-its own 3-hour recency window on top, described in
-[local-agents-view-patch.md](local-agents-view-patch.md).
+its own liveness rule on top — in-process entries only under an `active` session,
+delegated records only while their process is alive, with a 3-hour backstop —
+described in [local-agents-view-patch.md](local-agents-view-patch.md).
 
 ### `pending_subagent_spawns`
 

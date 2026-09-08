@@ -44,7 +44,28 @@ final class SubworkerTreeTests: XCTestCase {
         data.hidden = true
         data.parentHarness = parentHarness
         data.parentHarnessSessionId = parentHarnessSessionId
+        // The test process is alive by definition, so structure tests are not accidentally
+        // testing liveness. Liveness tests below inject their own probe.
+        data.pid = UInt32(ProcessInfo.processInfo.processIdentifier)
+        data.pidStartTime = SessionData.processStartTime(pid: data.pid!)
         return data
+    }
+
+    private func withoutProcessEvidence(
+        _ data: SessionData, status: SessionStatus, lastActivityAgo: TimeInterval, now: Date
+    ) -> SessionData {
+        var copy = data
+        copy.pid = nil
+        copy.pidStartTime = nil
+        copy.status = status
+        copy.lastActivity = now.addingTimeInterval(-lastActivityAgo)
+        return copy
+    }
+
+    private func dormant(_ session: UserSession) -> UserSession {
+        var data = session.displayRecord.data
+        data.lifecycle = .dormant
+        return session.replacingDisplayData(data)
     }
 
     private func agent(_ id: String, startedAt: Date = Date()) -> SubagentInfo {
@@ -220,7 +241,7 @@ final class SubworkerTreeTests: XCTestCase {
         XCTAssertEqual(ids.count, Set(ids).count)
     }
 
-    // MARK: - Recency window
+    // MARK: - Liveness and the backstop window
 
     private func aged(_ data: SessionData, by seconds: TimeInterval, now: Date) -> SessionData {
         var copy = data
@@ -269,7 +290,9 @@ final class SubworkerTreeTests: XCTestCase {
         XCTAssertEqual(SubworkerTree.build(roots: [ccRoot], delegated: [], now: now).childCount, 1)
     }
 
-    func testDelegatedRecordPastTheWindowLeavesTheTreeWithItsIdleChild() {
+    /// The window is the backstop: even a record whose process is somehow still alive stops
+    /// being shown once it has been silent for hours.
+    func testLiveDelegatedRecordPastTheWindowStillLeavesTheTreeWithItsChild() {
         let now = Date()
         let ccRoot = root(harnessSessionId: "cc-1")
         let idleParent = aged(
@@ -287,15 +310,108 @@ final class SubworkerTreeTests: XCTestCase {
             by: 4 * 3_600, now: now
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [idleParent, idleChild], now: now)
+        let tree = SubworkerTree.build(
+            roots: [ccRoot], delegated: [idleParent, idleChild], now: now,
+            isProcessAlive: { _ in true }
+        )
 
         XCTAssertTrue(tree.isEmpty, "neither a node nor an unattributed entry")
         XCTAssertEqual(tree.childCount, 0)
     }
 
-    /// Recency is judged per record, so work that is still running does not vanish because
-    /// the record that spawned it went quiet.
-    func testFreshChildOfAnAgedOutDelegateSurvivesAsUnattributed() {
+    func testDelegatedRecordWithADeadProcessIsExcludedEvenWhenBrandNew() {
+        let now = Date()
+        let ccRoot = root(harnessSessionId: "cc-1")
+        let justExited = delegated(
+            harnessSessionId: "codex-1", source: SessionData.codexSource,
+            parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+        )
+        XCTAssertEqual(
+            SubworkerTree.build(
+                roots: [ccRoot], delegated: [justExited], now: now,
+                isProcessAlive: { _ in true }
+            ).childCount,
+            1
+        )
+
+        let tree = SubworkerTree.build(
+            roots: [ccRoot], delegated: [justExited], now: now,
+            isProcessAlive: { _ in false }
+        )
+        XCTAssertTrue(tree.isEmpty, "a minute-old record whose process exited is not running")
+    }
+
+    func testDelegatedRecordWithALiveProcessStaysUntilTheBackstop() {
+        let now = Date()
+        let ccRoot = root(harnessSessionId: "cc-1")
+        let longRunning = aged(
+            delegated(
+                harnessSessionId: "codex-1", source: SessionData.codexSource,
+                parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+            ),
+            by: SubworkerTree.visibilityWindow - 60, now: now
+        )
+
+        let tree = SubworkerTree.build(
+            roots: [ccRoot], delegated: [longRunning], now: now,
+            isProcessAlive: { _ in true }
+        )
+        XCTAssertEqual(tree.childCount, 1)
+    }
+
+    func testDelegatedRecordWithoutProcessEvidenceNeedsRecentWorkingActivity() {
+        let now = Date()
+        let ccRoot = root(harnessSessionId: "cc-1")
+        let base = delegated(
+            harnessSessionId: "codex-1", source: SessionData.codexSource,
+            parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+        )
+        func childCount(status: SessionStatus, ago: TimeInterval) -> Int {
+            SubworkerTree.build(
+                roots: [ccRoot],
+                delegated: [withoutProcessEvidence(base, status: status, lastActivityAgo: ago, now: now)],
+                now: now,
+                isProcessAlive: { _ in XCTFail("no process evidence to probe"); return true }
+            ).childCount
+        }
+
+        XCTAssertEqual(childCount(status: .working, ago: 300), 1)
+        XCTAssertEqual(childCount(status: .waitingPermission, ago: 300), 1)
+        XCTAssertEqual(childCount(status: .working, ago: 900), 0, "quiet for 15 minutes")
+        XCTAssertEqual(childCount(status: .idle, ago: 60), 0, "idle is not running")
+        XCTAssertEqual(childCount(status: .waitingInput, ago: 60), 0)
+    }
+
+    func testUnattributedOrphanWithADeadProcessIsExcluded() {
+        let now = Date()
+        let orphan = delegated(
+            harnessSessionId: "codex-orphan", source: SessionData.codexSource,
+            parentHarness: nil, parentHarnessSessionId: nil
+        )
+
+        XCTAssertEqual(
+            SubworkerTree.build(roots: [], delegated: [orphan], now: now, isProcessAlive: { _ in true })
+                .childCount,
+            1
+        )
+        XCTAssertTrue(
+            SubworkerTree.build(roots: [], delegated: [orphan], now: now, isProcessAlive: { _ in false })
+                .isEmpty
+        )
+    }
+
+    func testInProcessSubagentsAreHiddenUnderADormantRoot() {
+        let now = Date()
+        let active = root(harnessSessionId: "cc-1", subagents: [agent("a1")])
+        XCTAssertEqual(SubworkerTree.build(roots: [active], delegated: [], now: now).childCount, 1)
+
+        let tree = SubworkerTree.build(roots: [dormant(active)], delegated: [], now: now)
+        XCTAssertTrue(tree.isEmpty, "a dormant session cannot be running in-process subagents")
+    }
+
+    /// Liveness is judged per record, so work that is still running does not vanish because
+    /// the record that spawned it exited.
+    func testLiveChildOfAnExitedDelegateSurvivesAsUnattributed() {
         let now = Date()
         let ccRoot = root(harnessSessionId: "cc-1")
         let idleParent = aged(
@@ -310,7 +426,10 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.codexSource, parentHarnessSessionId: "codex-1"
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [idleParent, freshChild], now: now)
+        let tree = SubworkerTree.build(
+            roots: [ccRoot], delegated: [idleParent, freshChild], now: now,
+            isProcessAlive: { $0.harnessSessionId == "cc-2" }
+        )
 
         XCTAssertEqual(tree.groups.count, 1)
         XCTAssertNil(tree.groups[0].root)

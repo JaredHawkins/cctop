@@ -3,13 +3,15 @@ import SwiftUI
 extension PopupView {
     /// Roots are the visible sessions in canonical order. Dropped sessions are already
     /// absent from `userSessions`; acknowledged ones are mirrors of rows that stay there.
-    /// `relativeTimeNow` is the panel's shared 10 s tick, so entries age past the recency
-    /// window on their own without waiting for a session reload.
+    /// `relativeTimeNow` is the panel's shared 10 s tick, so a delegate whose process has
+    /// exited leaves on the next tick without waiting for a session reload. The liveness
+    /// probe is a `sysctl` per delegated record, so nothing is cached across builds.
     var subworkerTree: SubworkerTree.Snapshot {
         SubworkerTree.build(
             roots: userSessions,
             delegated: delegatedSessionRecords.map(\.data),
-            now: relativeTimeNow
+            now: relativeTimeNow,
+            isProcessAlive: SubworkerTree.liveProcessEvidence
         )
     }
 

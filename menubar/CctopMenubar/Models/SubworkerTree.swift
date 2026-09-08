@@ -43,12 +43,22 @@ enum SubworkerTree {
     /// than deleted: the parent may simply not have reported a Stop yet.
     static let staleInterval: TimeInterval = 1_800
 
-    /// Past this, a sub-worker leaves the view entirely. The Agents tab answers "what is
-    /// running under my sessions right now", not "what ran this week": a dormant Codex
-    /// delegate survives its 14-day lifecycle retention, and an in-process entry survives
-    /// until its parent's next SessionStart, so without this the list fills with records
-    /// days old. Nothing is deleted — the records stay on disk and in their own surfaces.
+    /// Backstop only. Liveness decides what is shown; this catches the cases liveness
+    /// cannot see — a missed `SubagentStop`, or a record whose process evidence never
+    /// arrived. Nothing is deleted: the records stay on disk and in their own surfaces.
     static let visibilityWindow: TimeInterval = 3 * 3_600
+
+    /// How recently a delegated record with no usable process evidence must have reported
+    /// activity to still count as running.
+    static let unevidencedActivityWindow: TimeInterval = 600
+
+    /// The app's existing CLI liveness evidence: the PID must still exist *and* still be the
+    /// same process generation, so a reused PID cannot resurrect a finished delegate.
+    static let liveProcessEvidence: (SessionData) -> Bool = { data in
+        guard let pid = data.pid, let storedStart = data.pidStartTime,
+              let currentStart = SessionData.processStartTime(pid: pid) else { return false }
+        return abs(storedStart - currentStart) <= 1.0
+    }
 
     static let unattributedGroupID = "unattributed"
     static let unattributedGroupTitle = "Unattributed"
@@ -90,13 +100,19 @@ enum SubworkerTree {
     ///   - roots: the visible user sessions, in canonical order. Dropped sessions are
     ///     already absent from `SessionManager.userSessions`, so no extra filter is needed.
     ///   - delegated: hidden delegated records, in canonical order.
-    ///   - now: the clock the caller is already ticking on, so rows age out between reloads.
-    static func build(roots: [UserSession], delegated: [SessionData], now: Date = Date()) -> Snapshot {
-        // Filtered before anything else is derived, so an aged-out record becomes neither a
-        // node nor an Unattributed entry. Its children are judged on their own recency, so a
-        // still-running grandchild of an idle delegate surfaces as unattributed rather than
+    ///   - now: the clock the caller is already ticking on, so rows drop out between reloads.
+    ///   - isProcessAlive: process-liveness probe, injectable so the tree rules stay pure.
+    static func build(
+        roots: [UserSession],
+        delegated: [SessionData],
+        now: Date = Date(),
+        isProcessAlive: (SessionData) -> Bool = liveProcessEvidence
+    ) -> Snapshot {
+        // Filtered before anything else is derived, so a finished record becomes neither a
+        // node nor an Unattributed entry. Each record is judged on its own liveness, so a
+        // still-running grandchild of an exited delegate surfaces as unattributed rather than
         // disappearing with its parent.
-        let recent = delegated.filter { isWithinVisibilityWindow($0, now: now) }
+        let recent = delegated.filter { isLive($0, now: now, isProcessAlive: isProcessAlive) }
         var childrenByParent: [HarnessKey: [SessionData]] = [:]
         for data in recent {
             guard let key = parentKey(for: data) else { continue }
@@ -161,9 +177,27 @@ enum SubworkerTree {
         now.timeIntervalSince(info.effectiveActivity) <= visibilityWindow
     }
 
-    /// A delegated record reports its own `last_activity`, so recency needs no inference.
     static func isWithinVisibilityWindow(_ data: SessionData, now: Date) -> Bool {
         now.timeIntervalSince(data.lastActivity) <= visibilityWindow
+    }
+
+    /// Whether a delegated record is still doing work.
+    ///
+    /// Codex never sends `SessionEnd`, and its lifecycle policy keeps a record active or
+    /// dormant on activity age alone, so an exited `codex exec` run reads "Working" for
+    /// hours. The owning process is the only honest signal cctop has, so that is what this
+    /// asks. Records that predate PID capture have no such evidence; for those, only a
+    /// record that claims to be mid-work *and* reported activity in the last few minutes
+    /// counts, which fails closed on anything idle or quiet.
+    static func isLive(
+        _ data: SessionData, now: Date, isProcessAlive: (SessionData) -> Bool = liveProcessEvidence
+    ) -> Bool {
+        guard isWithinVisibilityWindow(data, now: now) else { return false }
+        guard data.pid != nil, data.pidStartTime != nil else {
+            guard data.status == .working || data.status == .waitingPermission else { return false }
+            return now.timeIntervalSince(data.lastActivity) <= unevidencedActivityWindow
+        }
+        return isProcessAlive(data)
     }
 
     static func groupID(for root: UserSession) -> String {
@@ -182,7 +216,11 @@ enum SubworkerTree {
     ) -> [Node] {
         let nodeDepth = min(depth, maxDepth)
         let ownerNodeKey = nodeKey(for: owner)
-        var nodes = (owner.activeSubagents ?? [])
+        // A dormant or finished session cannot be running an in-process subagent, whatever
+        // its file still lists. Inside a live owner the entries stay until `SubagentStop`,
+        // because a subagent inside a 20-minute Bash call emits nothing at all; the 30-minute
+        // stale marker is the hint and the visibility window the backstop.
+        var nodes = (owner.lifecycle == .active ? owner.activeSubagents ?? [] : [])
             .filter { isWithinVisibilityWindow($0, now: now) }
             .sorted { $0.startedAt < $1.startedAt }
             .map { info in

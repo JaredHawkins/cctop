@@ -1451,9 +1451,7 @@ final class WorktreeCleanupTests: XCTestCase {
         XCTAssertTrue(agentsHelpText.hasPrefix(
             "Sub-workers spawned by your sessions: in-process Claude subagents and delegated Claude or Codex runs."
         ))
-        XCTAssertTrue(agentsHelpText.hasSuffix(
-            "Entries idle for more than \(Int(SubworkerTree.visibilityWindow / 3_600)) hours drop out."
-        ))
+        XCTAssertTrue(agentsHelpText.hasSuffix("Delegated runs leave when their process exits."))
         let recentHelpText = PopupTab.recent.helpText
         XCTAssertTrue(recentHelpText.contains("Finished work"))
         XCTAssertTrue(recentHelpText.contains("archived desktop sessions"))
@@ -1486,7 +1484,7 @@ final class WorktreeCleanupTests: XCTestCase {
         )
         XCTAssertEqual(
             PopupTab.agents.emptyStateDetail,
-            "Subagents and delegated runs appear here while they are active."
+            "No sub-workers running under your sessions."
         )
         let recentEmptyStateDetail = PopupTab.recent.emptyStateDetail
         XCTAssertTrue(recentEmptyStateDetail.contains("Finished work"))

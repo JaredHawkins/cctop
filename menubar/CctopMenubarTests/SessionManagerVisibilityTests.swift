@@ -3575,6 +3575,7 @@ final class SessionManagerVisibilityTests: XCTestCase {
             projectPath: (root as NSString).appendingPathComponent("p")
         )
         delegatedActive.harnessSessionId = "codex-delegated"
+        delegatedActive.pidStartTime = SessionData.processStartTime(pid: livePid)
         delegatedActive.isSubagentSession = true
         delegatedActive.hidden = true
         delegatedActive.parentHarness = SessionData.ccSource
