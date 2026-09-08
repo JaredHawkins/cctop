@@ -85,6 +85,8 @@ struct SubworkerRowView: View {
                     .fill(Color.statusPermission)
                     .frame(width: 6, height: 6)
                     .accessibilityHidden(true)
+            } else if isActivelyWorking {
+                SubworkerActivityDot()
             }
             if case .delegated(let session) = node.kind {
                 SubworkerStatusLabel(session: session)
@@ -205,14 +207,22 @@ struct SubworkerRowView: View {
         isStale ? Color.textMuted : Color.textSecondary
     }
 
+    private var isActivelyWorking: Bool {
+        SubworkerTree.isActivelyWorking(node.kind, now: relativeTimeNow)
+    }
+
+    /// Live rows tick a precise elapsed time; a stale row keeps the panel's coarse relative
+    /// wording, where the exact second stopped being interesting.
     private var elapsedText: String {
         let started: Date
         switch node.kind {
         case .inProcess(let info): started = info.startedAt
         case .delegated(let session): started = session.startedAt
         }
-        let elapsed = started.relativeDescription(asOf: relativeTimeNow)
-        return isStale ? "\(elapsed) \u{00B7} stale" : elapsed
+        guard !isStale else {
+            return "\(started.relativeDescription(asOf: relativeTimeNow)) \u{00B7} stale"
+        }
+        return SubworkerTree.elapsedDescription(since: started, asOf: relativeTimeNow)
     }
 
     /// In-process rows show the subagent's own tool, or what it is blocked on. Delegated rows
@@ -243,6 +253,27 @@ struct SubworkerRowView: View {
         parts.append("started \(elapsedText)")
         if let activityText { parts.append(activityText) }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// The live-work dot. Motion is the only thing on this panel that says "right now"
+/// without reading text, so it is reserved for rows whose last tool event is seconds old,
+/// and it holds still when the system asks for reduced motion.
+struct SubworkerActivityDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isDimmed = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.statusGreen)
+            .frame(width: 6, height: 6)
+            .opacity(isDimmed ? 0.45 : 1.0)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 1.2).repeatForever(autoreverses: true),
+                value: isDimmed
+            )
+            .onAppear { if !reduceMotion { isDimmed = true } }
+            .accessibilityHidden(true)
     }
 }
 

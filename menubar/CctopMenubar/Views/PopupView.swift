@@ -134,70 +134,6 @@ struct PopupView: View {
         }
     }
 
-    // MARK: - Tab picker
-
-    private var tabPicker: some View {
-        HStack(spacing: 1) {
-            ForEach(PopupTab.primaryCases, id: \.self) { tab in
-                tabButton(
-                    tab.label,
-                    count: count(for: tab),
-                    tab: tab,
-                    isScanning: tab == .cleanup && cleanupIsScanning,
-                    hasAttention: tab == .cleanup && cleanupHasUnseenCandidates
-                )
-            }
-            SecondaryTabMenuView(
-                selectedTab: selectedTab,
-                cleanupIsScanning: cleanupIsScanning,
-                cleanupHasAttention: cleanupHasUnseenCandidates,
-                count: count(for:),
-                onSelect: selectTab
-            )
-        }
-        .padding(2)
-        .background(Color.segmentBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
-
-    private func count(for tab: PopupTab) -> Int {
-        switch tab {
-        case .active: return activeSessionRows.count
-        case .idle: return idleSessionRows.count
-        case .acknowledged: return acknowledgedSessionRows.count
-        case .dropped: return droppedSessionRows.count
-        case .agents: return subworkerTree.childCount
-        case .recent: return recentTargets.count
-        case .cleanup: return actionableCleanupCandidates.count
-        }
-    }
-
-    private func tabButton(
-        _ label: String,
-        count: Int,
-        tab: PopupTab,
-        isScanning: Bool = false,
-        hasAttention: Bool = false
-    ) -> some View {
-        TabButtonView(
-            label: label,
-            count: count,
-            isScanning: isScanning,
-            hasAttention: hasAttention && selectedTab != tab,
-            isSelected: selectedTab == tab
-        ) {
-            selectTab(tab)
-        }
-        .help(tab.helpText)
-    }
-
-    func selectTab(_ tab: PopupTab) {
-        if overlayController.active != nil { closeOverlay(animated: false) }
-        withAnimation(.easeInOut(duration: 0.15)) { selectedTab = tab }
-        notifyLayoutChanged()
-    }
     // MARK: - Active tab
     private var activeContent: some View {
         Group {
@@ -370,6 +306,8 @@ extension PopupView {
             in: actionableCleanupCandidates
         )
     }
+    /// Agents sits after Dropped in both placements, so the rendered order is `allCases`
+    /// either way and cycling needs no extra tree build (pinned by a placement test).
     private var availableTabs: [PopupTab] {
         PopupTab.allCases
     }
@@ -391,7 +329,7 @@ extension PopupView {
             notifyLayoutChanged()
         }
     }
-    private func closeOverlay(animated: Bool) {
+    func closeOverlay(animated: Bool) {
         overlayController.active = nil
         notifyLayoutChanged()
         guard animated else { overlayController.hideContent = false; return }

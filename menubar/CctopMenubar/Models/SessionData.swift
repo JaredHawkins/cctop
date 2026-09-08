@@ -263,6 +263,14 @@ struct SubagentInfo: Codable, Equatable {
     /// The best available "still working" timestamp for staleness display.
     var effectiveActivity: Date { lastActivity ?? startedAt }
 
+    /// "Explore: Grep PopupTab" — what this subagent is doing, for the parent card's badge.
+    /// Nil until it runs its first tool.
+    var badgeActivity: String? {
+        guard let lastTool else { return nil }
+        guard let lastToolDetail else { return "\(agentType): \(lastTool)" }
+        return "\(agentType): \(lastTool) \(lastToolDetail.whitespaceCollapsed)"
+    }
+
     /// True once a queued spawn has been paired into this entry, so a later `SubagentStart`
     /// for the same id cannot consume a second one.
     var hasSpawnMetadata: Bool {
@@ -730,7 +738,11 @@ extension SessionData {
         return startTime(from: info)
     }
 
-    var isAlive: Bool {
+    /// Every liveness check except the orphan rule: the PID exists, is still the process
+    /// generation this record captured, is not another harness's binary, and is not
+    /// suspended. This is "the work is still running", which is a different question from
+    /// "the user can still be taken to it".
+    var isRunningOwnedProcess: Bool {
         guard let pid else { return false }
         guard kill(Int32(pid), 0) == 0 || errno == EPERM else { return false }
         guard let info = Self.processInfo(pid: pid) else { return false }
@@ -745,11 +757,22 @@ extension SessionData {
         // rapid PID reuse can land within the 1s start-time tolerance (issue #155).
         if Self.isForeignHarnessComm(Self.commandName(from: info), source: source) { return false }
 
-        // Suspended (Ctrl+Z) or orphaned (PPID=1) processes are unreachable
+        // Suspended (Ctrl+Z) processes are unreachable
         if info.kp_proc.p_stat == 4 { return false }
-        if info.kp_eproc.e_ppid == 1 { return false }
 
         return true
+    }
+
+    /// Reparented to launchd. An interactive session that lost its shell can no longer be
+    /// focused, so focus-facing liveness excludes it — but a *delegated* run reparented by
+    /// `nohup … & disown` is still doing work, so work-facing liveness must not.
+    var isOrphanedProcess: Bool {
+        guard let pid, let info = Self.processInfo(pid: pid) else { return false }
+        return info.kp_eproc.e_ppid == 1
+    }
+
+    var isAlive: Bool {
+        isRunningOwnedProcess && !isOrphanedProcess
     }
 
     private static func startTime(from info: kinfo_proc) -> TimeInterval {

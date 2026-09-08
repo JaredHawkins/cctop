@@ -132,11 +132,26 @@ A **delegated record** is shown only while its process is alive. Codex never
 sends `SessionEnd`, and the Codex lifecycle keeps a record active or dormant on
 `last_activity` age alone, so an exited `codex exec` run keeps reading "Working"
 or "Waiting" for hours — four such records sat in the view up to 166 minutes past
-their exit. The owning process is the only honest signal cctop has. Liveness uses
-the app's existing CLI evidence, `SubworkerTree.liveProcessEvidence`: the PID must
-still exist *and* still be the same process generation
-(`pidStartTime` vs `SessionData.processStartTime(pid:)`), so a reused PID cannot
-resurrect a finished delegate. The probe is injected into
+their exit. The owning process is the only honest signal cctop has.
+`SubworkerTree.liveProcessEvidence` defers to
+`SessionData.isRunningOwnedProcess` — the shared definition of "this work is still
+running", factored out of `isAlive` without changing it — so the Agents view
+inherits its rejection of a dead or unreachable PID, a *foreign harness's* PID
+(the capture-time parent walk can adopt one), and a suspended process.
+
+It deliberately does **not** use `isAlive`, which additionally rejects a process
+reparented to launchd (`PPID == 1`). That rule is right for focus: an interactive
+session that lost its shell cannot be jumped to. It is wrong here.
+`nohup codex exec … & disown` from a Claude Bash call is the normal way to start a
+long delegated run, and it reparents to PID 1 the moment its launching shell
+exits — so an orphan check would drop exactly the runs most worth watching. The
+parent link this view cares about is `parent_harness_session_id`, not the Unix
+PPID.
+
+On top of that the process generation must match `pidStartTime` **exactly**,
+rather than within the shared predicate's one-second tolerance: that tolerance is
+right for a session card that fails open, but here a PID reused inside the same
+second would keep an exited delegate on screen until the backstop. The probe is injected into
 `SubworkerTree.build(roots:delegated:now:isProcessAlive:)`, which keeps the tree
 rules pure for tests; `PopupView` passes the real one. Nothing is cached across
 builds — it is one `sysctl` per delegated record on a panel that ticks every
@@ -206,6 +221,40 @@ block capped at six lines. A delegated row shows project path (tilde-abbreviated
 branch, PID, start time, last activity, its permission message when it is
 waiting, and the same bordered block over `last_prompt`. A waiting row also gets a
 permission-colored dot on its title line.
+
+## UX
+
+- **Agents earns a segment while it has content.** `PopupTab.primaryCases(agentsCount:)`
+  and `secondaryCases(agentsCount:)` move it between the selector row and the
+  overflow, so a running sub-worker is one click away without a permanently empty
+  segment taking width from the four that are always relevant. It sits after
+  Dropped in both placements, so `orderedCases(agentsCount:)` equals `allCases`
+  either way and keyboard cycling always matches the screen. Selecting Agents and
+  then watching the count fall to zero keeps the tab selected, showing its empty
+  state; only the segment moves.
+- **The parent card names the busiest child.** `SubworkerTree.badge(for:now:)`
+  renders "3 agents · Explore: Grep PopupTab" from the in-process subagent with
+  the most recent `effectiveActivity`. Its count comes from
+  `visibleSubagents(of:now:)`, the same predicate the tree itself uses, so the card
+  can never advertise rows the Agents view has already dropped — a dormant parent
+  or an aged-out entry shows no badge at all, and the accessibility label uses the
+  same number. Delegated runs are separate records and are not on the card's data,
+  so they never appear there. The badge is still the
+  button that opens the Agents view, still 10 px `agentBadge`, and stays one
+  truncated line so the title row keeps its 18 px height.
+- **Motion means "right now".** A row whose last tool event is under
+  `activityPulseInterval` (30 s) old shows a pulsing `statusGreen` dot — opacity
+  1.0 to 0.45, 1.2 s ease-in-out, autoreversing. Delegated rows additionally have
+  to claim `working`; a blocked delegate keeps the permission dot instead. The dot
+  holds still under `accessibilityReduceMotion`. This is the single sanctioned
+  exception to the repo's no-repeating-animation contract for panel rows
+  (`SnapshotContractTests.testSessionRowsAvoidPerRowTimelineAndInfiniteAnimations`
+  allowlists exactly one occurrence in `SubworkerRowView.swift`); group headers and
+  session cards stay still.
+- **Live rows tick.** `SubworkerTree.elapsedDescription(since:asOf:)` shows
+  `4m 12s` under an hour and `1h 04m` above it, refreshed by the panel's existing
+  10-second tick. A stale row keeps the coarse relative wording plus "· stale",
+  where the exact second stopped being interesting.
 
 ## Regression coverage
 

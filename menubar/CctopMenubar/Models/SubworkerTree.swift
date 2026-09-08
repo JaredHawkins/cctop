@@ -52,12 +52,27 @@ enum SubworkerTree {
     /// activity to still count as running.
     static let unevidencedActivityWindow: TimeInterval = 600
 
-    /// The app's existing CLI liveness evidence: the PID must still exist *and* still be the
-    /// same process generation, so a reused PID cannot resurrect a finished delegate.
+    /// The app's own process-liveness checks, minus one that does not apply and plus one
+    /// extra turn of the screw.
+    ///
+    /// `SessionData.isRunningOwnedProcess` is the shared definition of "this work is still
+    /// running": it rejects a dead or unreachable PID, a *foreign harness's* PID (the
+    /// capture-time parent walk can adopt one), and a suspended process. Deliberately not
+    /// `isAlive`, which additionally rejects a process reparented to launchd — right for
+    /// focus, wrong here, because `nohup codex exec … & disown` is a normal way to start a
+    /// long delegated run and it reparents to PID 1 the moment its launching shell exits.
+    /// The parent link this view cares about is `parent_harness_session_id`, not the Unix
+    /// PPID.
+    ///
+    /// The generation must then match `pidStartTime` *exactly*, not within
+    /// `isRunningOwnedProcess`'s one-second tolerance: that tolerance is right for a session
+    /// card that fails open, but here a PID reused inside the same second would keep an
+    /// exited delegate on screen until the backstop. Both values come from the same kernel
+    /// field and round-trip through JSON losslessly; if they ever disagree the record is
+    /// hidden rather than shown, which is the safe direction for this view.
     static let liveProcessEvidence: (SessionData) -> Bool = { data in
-        guard let pid = data.pid, let storedStart = data.pidStartTime,
-              let currentStart = SessionData.processStartTime(pid: pid) else { return false }
-        return abs(storedStart - currentStart) <= 1.0
+        guard data.isRunningOwnedProcess, let pid = data.pid else { return false }
+        return data.pidStartTime == SessionData.processStartTime(pid: pid)
     }
 
     static let unattributedGroupID = "unattributed"
@@ -173,6 +188,65 @@ enum SubworkerTree {
         now.timeIntervalSince(info.effectiveActivity) > staleInterval
     }
 
+    /// The in-process subagents this view would actually show for a session. The parent
+    /// card's badge reads from the same function, so it can never advertise rows that are
+    /// not there.
+    ///
+    /// A dormant or finished session cannot be running an in-process subagent, whatever its
+    /// file still lists. Inside a live owner the entries stay until `SubagentStop`, because a
+    /// subagent inside a 20-minute Bash call emits nothing at all; the 30-minute stale marker
+    /// is the hint and the visibility window the backstop.
+    static func visibleSubagents(of data: SessionData, now: Date) -> [SubagentInfo] {
+        guard data.lifecycle == .active else { return [] }
+        return (data.activeSubagents ?? []).filter { isWithinVisibilityWindow($0, now: now) }
+    }
+
+    /// Parent-card badge: how many sub-workers this session is showing, and what the busiest
+    /// one is doing. Nil when the Agents view would show none, so the badge and the tab
+    /// always agree.
+    struct Badge: Equatable {
+        let count: Int
+        let label: String
+    }
+
+    static func badge(for data: SessionData, now: Date) -> Badge? {
+        let visible = visibleSubagents(of: data, now: now)
+        guard !visible.isEmpty else { return nil }
+        let text = "\(visible.count) agent\(visible.count == 1 ? "" : "s")"
+        guard let activity = visible.max(by: { $0.effectiveActivity < $1.effectiveActivity })?
+            .badgeActivity else {
+            return Badge(count: visible.count, label: text)
+        }
+        return Badge(count: visible.count, label: "\(text) \u{00B7} \(activity)")
+    }
+
+    /// A row whose last tool event is this fresh reads as moving right now.
+    static let activityPulseInterval: TimeInterval = 30
+
+    /// True while a row should show the live (pulsing) status dot.
+    static func isActivelyWorking(_ kind: SubworkerKind, now: Date) -> Bool {
+        switch kind {
+        case .inProcess(let info):
+            guard let lastActivity = info.lastActivity else { return false }
+            return now.timeIntervalSince(lastActivity) < activityPulseInterval
+        case .delegated(let data):
+            // A delegated record has a real status, so only claim motion when it claims work.
+            guard data.status == .working else { return false }
+            return now.timeIntervalSince(data.lastActivity) < activityPulseInterval
+        }
+    }
+
+    /// Ticking elapsed for a live row: "4m 12s" under an hour, "1h 04m" from there. Absolute
+    /// and monotonic, unlike the coarse "4m ago" the rest of the panel uses, because these
+    /// rows are the ones the user is watching move.
+    static func elapsedDescription(since start: Date, asOf now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        if seconds < 3_600 {
+            return String(format: "%dm %02ds", seconds / 60, seconds % 60)
+        }
+        return String(format: "%dh %02dm", seconds / 3_600, (seconds % 3_600) / 60)
+    }
+
     static func isWithinVisibilityWindow(_ info: SubagentInfo, now: Date) -> Bool {
         now.timeIntervalSince(info.effectiveActivity) <= visibilityWindow
     }
@@ -216,12 +290,7 @@ enum SubworkerTree {
     ) -> [Node] {
         let nodeDepth = min(depth, maxDepth)
         let ownerNodeKey = nodeKey(for: owner)
-        // A dormant or finished session cannot be running an in-process subagent, whatever
-        // its file still lists. Inside a live owner the entries stay until `SubagentStop`,
-        // because a subagent inside a 20-minute Bash call emits nothing at all; the 30-minute
-        // stale marker is the hint and the visibility window the backstop.
-        var nodes = (owner.lifecycle == .active ? owner.activeSubagents ?? [] : [])
-            .filter { isWithinVisibilityWindow($0, now: now) }
+        var nodes = visibleSubagents(of: owner, now: now)
             .sorted { $0.startedAt < $1.startedAt }
             .map { info in
                 Node(id: "agent:\(ownerNodeKey):\(info.agentId)", depth: nodeDepth, kind: .inProcess(info))
@@ -358,9 +427,11 @@ extension SubworkerTree {
         grandchild.parentHarnessSessionId = "codex-thread-uuid"
         grandchild.startedAt = Date().addingTimeInterval(-70)
 
+        // No pid, so these take the no-process-evidence path and must claim live work.
         var orphan = SessionData.mock(
             id: "orphan", harnessSessionId: "orphan-uuid", project: "geolab",
-            branch: "main", status: .idle, source: SessionData.codexSource
+            branch: "main", status: .working, lastTool: "Bash", lastToolDetail: "cargo test",
+            source: SessionData.codexSource
         )
         orphan.isSubagentSession = true
         orphan.hidden = true

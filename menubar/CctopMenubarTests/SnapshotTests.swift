@@ -623,13 +623,31 @@ final class SnapshotContractTests: XCTestCase {
             includingPropertiesForKeys: nil
         )
         .filter { $0.pathExtension == "swift" }
-        let source = try viewSources
-            .map { try String(contentsOf: $0) }
-            .joined(separator: "\n")
+        let sourcesByFile = try viewSources.reduce(into: [String: String]()) { result, url in
+            result[url.lastPathComponent] = try String(contentsOf: url)
+        }
+        let source = sourcesByFile.values.joined(separator: "\n")
 
         XCTAssertFalse(source.contains("TimelineView("))
-        XCTAssertFalse(source.contains("repeatForever"))
         XCTAssertFalse(source.contains("BlinkingCaret("))
         XCTAssertFalse(viewSources.contains { $0.lastPathComponent == "BlinkingCaret.swift" })
+
+        // Session rows stay animation-free. The one sanctioned exception is the Agents view's
+        // live-work dot, which only exists while a sub-worker's last tool event is seconds
+        // old and is disabled under Reduce Motion. Keeping the allowlist to one occurrence in
+        // one file means any new repeating animation anywhere still fails this contract.
+        let filesWithRepeatingAnimation = sourcesByFile
+            .filter { $0.value.contains("repeatForever") }
+            .keys
+            .sorted()
+        XCTAssertEqual(filesWithRepeatingAnimation, ["SubworkerRowView.swift"])
+        XCTAssertEqual(
+            sourcesByFile["SubworkerRowView.swift"]?.components(separatedBy: "repeatForever").count,
+            2,
+            "exactly one repeating animation is sanctioned"
+        )
+        XCTAssertEqual(
+            sourcesByFile["SessionCardView.swift"]?.contains("repeatForever"), false
+        )
     }
 }

@@ -1382,8 +1382,14 @@ final class WorktreeCleanupTests: XCTestCase {
             PopupTab.allCases,
             [.active, .idle, .acknowledged, .dropped, .agents, .recent, .cleanup]
         )
-        XCTAssertEqual(PopupTab.primaryCases, [.active, .idle, .acknowledged, .dropped])
-        XCTAssertEqual(PopupTab.secondaryCases, [.agents, .recent, .cleanup])
+        XCTAssertEqual(PopupTab.baseCases, [.active, .idle, .acknowledged, .dropped])
+        // Agents earns a segment only while it has content.
+        XCTAssertEqual(PopupTab.primaryCases(agentsCount: 0), [.active, .idle, .acknowledged, .dropped])
+        XCTAssertEqual(PopupTab.secondaryCases(agentsCount: 0), [.agents, .recent, .cleanup])
+        XCTAssertEqual(
+            PopupTab.primaryCases(agentsCount: 1), [.active, .idle, .acknowledged, .dropped, .agents]
+        )
+        XCTAssertEqual(PopupTab.secondaryCases(agentsCount: 1), [.recent, .cleanup])
     }
 
     @MainActor
@@ -1499,6 +1505,41 @@ final class WorktreeCleanupTests: XCTestCase {
             PopupTab.cleanupScanningDetail,
             "Checking ended-session worktrees."
         )
+    }
+
+    /// Agents sits after Dropped in both placements, so the on-screen order and the cycle
+    /// order stay the same list whether it is a segment or an overflow entry.
+    func testTabOrderMatchesTheRenderedRowInBothPlacements() {
+        XCTAssertEqual(PopupTab.orderedCases(agentsCount: 0), PopupTab.allCases)
+        XCTAssertEqual(PopupTab.orderedCases(agentsCount: 3), PopupTab.allCases)
+        for count in [0, 3] {
+            let ordered = PopupTab.orderedCases(agentsCount: count)
+            XCTAssertEqual(
+                PopupTab.switched(from: .dropped, action: .nextTab, availableTabs: ordered), .agents
+            )
+            XCTAssertEqual(
+                PopupTab.switched(from: .agents, action: .nextTab, availableTabs: ordered), .recent
+            )
+            XCTAssertEqual(
+                PopupTab.switched(from: .agents, action: .previousTab, availableTabs: ordered), .dropped
+            )
+        }
+    }
+
+    @MainActor
+    func testSelectedAgentsTabSurvivesItsCountDroppingToZero() {
+        // The segment moves back into the overflow, but the selection is untouched: the tab
+        // still renders, showing its empty state.
+        XCTAssertFalse(PopupTab.primaryCases(agentsCount: 0).contains(.agents))
+        XCTAssertTrue(PopupTab.secondaryCases(agentsCount: 0).contains(.agents))
+        XCTAssertTrue(PopupTab.allCases.contains(.agents))
+    }
+
+    func testOverflowHelpTextListsWhicheverTabsItHolds() {
+        XCTAssertEqual(PopupTab.secondaryCases(agentsCount: 1).map(\.label).formattedAsList,
+                       "Recent and Cleanup")
+        XCTAssertEqual(PopupTab.secondaryCases(agentsCount: 0).map(\.label).formattedAsList,
+                       "Agents, Recent, and Cleanup")
     }
 
     func testKeyboardTabSwitchingIncludesSessionStateSelectorsAndCleanup() {

@@ -50,8 +50,8 @@ struct SessionCardView: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if session.subagentCount > 0 {
-                subagentBadge(count: session.subagentCount)
+            if let badge = subagentBadge {
+                subagentBadgeView(badge)
             }
 
             statusLabel
@@ -60,20 +60,26 @@ struct SessionCardView: View {
         .frame(height: 18)
     }
 
-    /// Same 10 px purple metadata as before; it just becomes clickable when the panel
-    /// supplies a destination. `.plain` keeps the button chrome-free.
+    /// Same 10 px purple metadata as before, now carrying the busiest child's activity; it
+    /// stays clickable when the panel supplies a destination. `.plain` keeps the button
+    /// chrome-free, and the single truncated line keeps the title row's 18 px height.
     @ViewBuilder
-    private func subagentBadge(count: Int) -> some View {
-        let label = Text("\(count) agent\(count == 1 ? "" : "s")")
+    private func subagentBadgeView(_ badge: SubworkerTree.Badge) -> some View {
+        let text = Text(badge.label)
             .font(.system(size: 10))
             .foregroundStyle(Color.agentBadge)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .layoutPriority(-1)
         if let onShowAgents {
-            Button(action: onShowAgents) { label }
+            Button(action: onShowAgents) { text }
                 .buttonStyle(.plain)
                 .help("Show agents")
-                .accessibilityLabel("Show \(count) agent\(count == 1 ? "" : "s")")
+                .accessibilityLabel(
+                    "Show \(badge.count) agent\(badge.count == 1 ? "" : "s")"
+                )
         } else {
-            label
+            text
         }
     }
 
@@ -237,6 +243,12 @@ struct SessionCardView: View {
 
     // MARK: - Computed copy
 
+    /// Sub-workers the Agents view would actually show for this session, so the card can
+    /// never advertise a count that opens onto an empty tab.
+    private var subagentBadge: SubworkerTree.Badge? {
+        SubworkerTree.badge(for: session, now: relativeTimeNow)
+    }
+
     /// Text for the third row when the session is working/compacting — the command stripe.
     /// Reuses `SessionData.contextLine` formatting (Reading X.swift, Running: foo, etc.).
     private var workingCommandText: String? {
@@ -277,10 +289,8 @@ struct SessionCardView: View {
             session.displayName, "on branch", session.branch,
             session.status.accessibilityDescription
         ]
-        if session.subagentCount > 0 {
-            parts.append(
-                "\(session.subagentCount) active subagent\(session.subagentCount == 1 ? "" : "s")"
-            )
+        if let badge = subagentBadge {
+            parts.append("\(badge.count) active subagent\(badge.count == 1 ? "" : "s")")
         }
         if let context = session.contextLine {
             parts.append(context)

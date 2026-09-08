@@ -44,10 +44,10 @@ final class SubworkerTreeTests: XCTestCase {
         data.hidden = true
         data.parentHarness = parentHarness
         data.parentHarnessSessionId = parentHarnessSessionId
-        // The test process is alive by definition, so structure tests are not accidentally
-        // testing liveness. Liveness tests below inject their own probe.
-        data.pid = UInt32(ProcessInfo.processInfo.processIdentifier)
-        data.pidStartTime = SessionData.processStartTime(pid: data.pid!)
+        // Synthetic process evidence, so `build` takes the probe branch rather than the
+        // no-evidence fallback. `buildTree` supplies the probe.
+        data.pid = 424_242
+        data.pidStartTime = 1_000
         return data
     }
 
@@ -68,8 +68,31 @@ final class SubworkerTreeTests: XCTestCase {
         return session.replacingDisplayData(data)
     }
 
+    private func rootSession(_ data: SessionData) -> UserSession {
+        let record = SessionRecord(
+            data: data, lifecycleRank: data.lifecycle.rawValue,
+            mtime: .distantPast, path: "/root-session.json"
+        )
+        return UserSession(
+            identity: SessionIdentityPolicy.logicalIdentity(for: data),
+            records: [record],
+            displayRecord: record
+        )
+    }
+
     private func agent(_ id: String, startedAt: Date = Date()) -> SubagentInfo {
         SubagentInfo(agentId: id, agentType: "Explore", startedAt: startedAt)
+    }
+
+    /// Structure tests assert grouping, not liveness, so the probe defaults to "alive".
+    /// Liveness tests pass their own.
+    private func buildTree(
+        roots: [UserSession] = [],
+        delegated: [SessionData] = [],
+        now: Date = Date(),
+        isProcessAlive: (SessionData) -> Bool = { _ in true }
+    ) -> SubworkerTree.Snapshot {
+        SubworkerTree.build(roots: roots, delegated: delegated, now: now, isProcessAlive: isProcessAlive)
     }
 
     private func delegatedIDs(_ nodes: [SubworkerTree.Node]) -> [String] {
@@ -93,7 +116,7 @@ final class SubworkerTreeTests: XCTestCase {
             subagents: [agent("a2")]
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [codexChild, ccGrandchild])
+        let tree = buildTree(roots: [ccRoot], delegated: [codexChild, ccGrandchild])
 
         XCTAssertEqual(tree.groups.count, 1)
         XCTAssertEqual(tree.childCount, 4)
@@ -118,7 +141,7 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.codexSource, parentHarnessSessionId: "codex-root"
         )
 
-        let tree = SubworkerTree.build(roots: [codexRoot], delegated: [ccChild])
+        let tree = buildTree(roots: [codexRoot], delegated: [ccChild])
 
         XCTAssertEqual(tree.groups.count, 1)
         XCTAssertEqual(delegatedIDs(tree.groups[0].nodes), ["cc-child"])
@@ -127,7 +150,7 @@ final class SubworkerTreeTests: XCTestCase {
 
     func testRootWithoutChildrenIsOmitted() {
         let lonely = root(harnessSessionId: "cc-lonely")
-        XCTAssertTrue(SubworkerTree.build(roots: [lonely], delegated: []).isEmpty)
+        XCTAssertTrue(buildTree(roots: [lonely], delegated: []).isEmpty)
     }
 
     func testHarnessMatchIsExactAcrossHarnessAndReference() {
@@ -143,7 +166,7 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1 "
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [wrongHarness, wrongReference])
+        let tree = buildTree(roots: [ccRoot], delegated: [wrongHarness, wrongReference])
 
         XCTAssertEqual(tree.groups.count, 1)
         XCTAssertNil(tree.groups[0].root)
@@ -166,7 +189,7 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.codexSource, parentHarnessSessionId: "codex-2"
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [attached, orphan, orphanChild])
+        let tree = buildTree(roots: [ccRoot], delegated: [attached, orphan, orphanChild])
 
         XCTAssertEqual(tree.groups.map(\.id).last, SubworkerTree.unattributedGroupID)
         XCTAssertEqual(delegatedIDs(tree.groups[0].nodes), ["codex-1"])
@@ -184,10 +207,10 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-dropped"
         )
 
-        let withRoot = SubworkerTree.build(roots: [dropped], delegated: [child])
+        let withRoot = buildTree(roots: [dropped], delegated: [child])
         XCTAssertEqual(withRoot.groups[0].root?.identity, dropped.identity)
 
-        let withoutRoot = SubworkerTree.build(roots: [], delegated: [child])
+        let withoutRoot = buildTree(roots: [], delegated: [child])
         XCTAssertEqual(withoutRoot.groups.count, 1)
         XCTAssertNil(withoutRoot.groups[0].root)
         XCTAssertEqual(withoutRoot.childCount, 1)
@@ -204,7 +227,7 @@ final class SubworkerTreeTests: XCTestCase {
             )
         }
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: chain)
+        let tree = buildTree(roots: [ccRoot], delegated: chain)
 
         XCTAssertEqual(tree.childCount, 5)
         XCTAssertEqual(tree.groups[0].nodes.map(\.depth), [1, 2, 3, 3, 3])
@@ -221,7 +244,7 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-a"
         )
 
-        let tree = SubworkerTree.build(roots: [], delegated: [first, second])
+        let tree = buildTree(roots: [], delegated: [first, second])
 
         XCTAssertEqual(tree.childCount, 2)
         XCTAssertEqual(Set(delegatedIDs(tree.groups[0].nodes)), ["cc-a", "cc-b"])
@@ -235,7 +258,7 @@ final class SubworkerTreeTests: XCTestCase {
             subagents: [agent("shared")]
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [child])
+        let tree = buildTree(roots: [ccRoot], delegated: [child])
         let ids = tree.groups.flatMap { $0.nodes.map(\.id) }
 
         XCTAssertEqual(ids.count, Set(ids).count)
@@ -255,7 +278,7 @@ final class SubworkerTreeTests: XCTestCase {
         let inside = agent("inside", startedAt: now.addingTimeInterval(-(SubworkerTree.visibilityWindow - 60)))
         let ccRoot = root(harnessSessionId: "cc-1", subagents: [inside])
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [], now: now)
+        let tree = buildTree(roots: [ccRoot], delegated: [], now: now)
 
         XCTAssertEqual(tree.childCount, 1)
         XCTAssertTrue(SubworkerTree.isStale(inside, now: now), "still marked, not dropped")
@@ -272,7 +295,7 @@ final class SubworkerTreeTests: XCTestCase {
             ]
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [], now: now)
+        let tree = buildTree(roots: [ccRoot], delegated: [], now: now)
 
         XCTAssertEqual(tree.childCount, 1)
         guard case .inProcess(let survivor) = tree.groups[0].nodes[0].kind else {
@@ -287,7 +310,7 @@ final class SubworkerTreeTests: XCTestCase {
         longRunning.lastActivity = now.addingTimeInterval(-30)
         let ccRoot = root(harnessSessionId: "cc-1", subagents: [longRunning])
 
-        XCTAssertEqual(SubworkerTree.build(roots: [ccRoot], delegated: [], now: now).childCount, 1)
+        XCTAssertEqual(buildTree(roots: [ccRoot], delegated: [], now: now).childCount, 1)
     }
 
     /// The window is the backstop: even a record whose process is somehow still alive stops
@@ -310,7 +333,7 @@ final class SubworkerTreeTests: XCTestCase {
             by: 4 * 3_600, now: now
         )
 
-        let tree = SubworkerTree.build(
+        let tree = buildTree(
             roots: [ccRoot], delegated: [idleParent, idleChild], now: now,
             isProcessAlive: { _ in true }
         )
@@ -327,14 +350,14 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
         )
         XCTAssertEqual(
-            SubworkerTree.build(
+            buildTree(
                 roots: [ccRoot], delegated: [justExited], now: now,
                 isProcessAlive: { _ in true }
             ).childCount,
             1
         )
 
-        let tree = SubworkerTree.build(
+        let tree = buildTree(
             roots: [ccRoot], delegated: [justExited], now: now,
             isProcessAlive: { _ in false }
         )
@@ -352,7 +375,7 @@ final class SubworkerTreeTests: XCTestCase {
             by: SubworkerTree.visibilityWindow - 60, now: now
         )
 
-        let tree = SubworkerTree.build(
+        let tree = buildTree(
             roots: [ccRoot], delegated: [longRunning], now: now,
             isProcessAlive: { _ in true }
         )
@@ -367,7 +390,7 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
         )
         func childCount(status: SessionStatus, ago: TimeInterval) -> Int {
-            SubworkerTree.build(
+            buildTree(
                 roots: [ccRoot],
                 delegated: [withoutProcessEvidence(base, status: status, lastActivityAgo: ago, now: now)],
                 now: now,
@@ -390,12 +413,12 @@ final class SubworkerTreeTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            SubworkerTree.build(roots: [], delegated: [orphan], now: now, isProcessAlive: { _ in true })
+            buildTree(roots: [], delegated: [orphan], now: now, isProcessAlive: { _ in true })
                 .childCount,
             1
         )
         XCTAssertTrue(
-            SubworkerTree.build(roots: [], delegated: [orphan], now: now, isProcessAlive: { _ in false })
+            buildTree(roots: [], delegated: [orphan], now: now, isProcessAlive: { _ in false })
                 .isEmpty
         )
     }
@@ -403,9 +426,9 @@ final class SubworkerTreeTests: XCTestCase {
     func testInProcessSubagentsAreHiddenUnderADormantRoot() {
         let now = Date()
         let active = root(harnessSessionId: "cc-1", subagents: [agent("a1")])
-        XCTAssertEqual(SubworkerTree.build(roots: [active], delegated: [], now: now).childCount, 1)
+        XCTAssertEqual(buildTree(roots: [active], delegated: [], now: now).childCount, 1)
 
-        let tree = SubworkerTree.build(roots: [dormant(active)], delegated: [], now: now)
+        let tree = buildTree(roots: [dormant(active)], delegated: [], now: now)
         XCTAssertTrue(tree.isEmpty, "a dormant session cannot be running in-process subagents")
     }
 
@@ -426,7 +449,7 @@ final class SubworkerTreeTests: XCTestCase {
             parentHarness: SessionData.codexSource, parentHarnessSessionId: "codex-1"
         )
 
-        let tree = SubworkerTree.build(
+        let tree = buildTree(
             roots: [ccRoot], delegated: [idleParent, freshChild], now: now,
             isProcessAlive: { $0.harnessSessionId == "cc-2" }
         )
@@ -444,7 +467,7 @@ final class SubworkerTreeTests: XCTestCase {
         )
         let otherRoot = root(harnessSessionId: "cc-2", subagents: [agent("fresh")])
 
-        let tree = SubworkerTree.build(roots: [ccRoot, otherRoot], delegated: [], now: now)
+        let tree = buildTree(roots: [ccRoot, otherRoot], delegated: [], now: now)
 
         XCTAssertEqual(tree.groups.count, 1)
         XCTAssertEqual(tree.groups[0].root?.identity, otherRoot.identity)
@@ -456,7 +479,7 @@ final class SubworkerTreeTests: XCTestCase {
     private func summaryText(
         roots: [UserSession], delegated: [SessionData], now: Date = Date()
     ) -> String? {
-        let tree = SubworkerTree.build(roots: roots, delegated: delegated)
+        let tree = buildTree(roots: roots, delegated: delegated)
         return SubworkerTree.summary(for: tree.groups[0], now: now).text
     }
 
@@ -474,7 +497,7 @@ final class SubworkerTreeTests: XCTestCase {
             subagents: [waiting, waitingAndSilent, stale, running]
         )
 
-        let tree = SubworkerTree.build(roots: [ccRoot], delegated: [])
+        let tree = buildTree(roots: [ccRoot], delegated: [])
         let summary = SubworkerTree.summary(for: tree.groups[0], now: now)
 
         XCTAssertEqual(summary.running, 1)
@@ -506,6 +529,267 @@ final class SubworkerTreeTests: XCTestCase {
         old.lastActivity = Date(timeIntervalSinceNow: -7_200)
 
         XCTAssertEqual(summaryText(roots: [ccRoot], delegated: [child, old]), "1 running \u{00B7} 1 waiting")
+    }
+
+    // MARK: - Row presentation
+
+    func testBadgeLabelNamesTheBusiestInProcessSubagent() {
+        let now = Date()
+        var quiet = agent("quiet", startedAt: now.addingTimeInterval(-600))
+        quiet.lastActivity = now.addingTimeInterval(-300)
+        quiet.lastTool = "Read"
+        quiet.lastToolDetail = "/old.swift"
+        var busy = agent("busy", startedAt: now.addingTimeInterval(-60))
+        busy.lastActivity = now.addingTimeInterval(-2)
+        busy.lastTool = "Grep"
+        busy.lastToolDetail = "PopupTab"
+
+        let session = SessionData.mock(activeSubagents: [quiet, busy])
+        let badge = SubworkerTree.badge(for: session, now: now)
+
+        XCTAssertEqual(badge?.count, 2)
+        XCTAssertEqual(badge?.label, "2 agents \u{00B7} Explore: Grep PopupTab")
+    }
+
+    func testBadgeLabelFallsBackToTheCountAloneAndPluralizes() {
+        let now = Date()
+        XCTAssertNil(SubworkerTree.badge(for: SessionData.mock(), now: now))
+        XCTAssertEqual(
+            SubworkerTree.badge(for: SessionData.mock(activeSubagents: [agent("a1")]), now: now)?.label,
+            "1 agent"
+        )
+
+        var toolOnly = agent("a1")
+        toolOnly.lastTool = "Bash"
+        XCTAssertEqual(
+            SubworkerTree.badge(for: SessionData.mock(activeSubagents: [toolOnly]), now: now)?.label,
+            "1 agent \u{00B7} Explore: Bash"
+        )
+    }
+
+    /// The card must never advertise sub-workers the Agents view has already dropped.
+    func testBadgeCountsOnlyTheSubagentsTheTreeWouldShow() {
+        let now = Date()
+        let live = agent("live", startedAt: now.addingTimeInterval(-30))
+        let agedOut = agent("gone", startedAt: now.addingTimeInterval(-(SubworkerTree.visibilityWindow + 60)))
+        let active = SessionData.mock(activeSubagents: [live, agedOut])
+
+        let badge = try? XCTUnwrap(SubworkerTree.badge(for: active, now: now))
+        XCTAssertEqual(badge?.count, 1, "the aged-out entry is not on the card either")
+        XCTAssertEqual(
+            buildTree(roots: [rootSession(active)], delegated: [], now: now).childCount,
+            badge?.count
+        )
+
+        var dormant = active
+        dormant.lifecycle = .dormant
+        XCTAssertNil(
+            SubworkerTree.badge(for: dormant, now: now),
+            "a dormant session shows no rows, so it shows no badge"
+        )
+        XCTAssertTrue(
+            buildTree(roots: [rootSession(dormant)], delegated: [], now: now).isEmpty
+        )
+
+        var allAgedOut = active
+        allAgedOut.activeSubagents = [agedOut]
+        XCTAssertNil(SubworkerTree.badge(for: allAgedOut, now: now))
+    }
+
+    // MARK: - Delegated process liveness
+
+    func testLiveProcessEvidenceAcceptsALiveOwnedProcess() throws {
+        let (pid, startTime) = try spawnProcess(named: "sleep")
+        var data = SessionData.mock()
+        data.pid = pid
+        data.pidStartTime = startTime
+
+        XCTAssertTrue(SubworkerTree.liveProcessEvidence(data))
+    }
+
+    /// `SessionData.isAlive` tolerates a one-second generation drift, which is right for a
+    /// session card but would keep an exited delegate on screen when a PID is reused inside
+    /// that second. The Agents view requires an exact match on top.
+    func testLiveProcessEvidenceRejectsASubSecondGenerationMismatch() throws {
+        let (pid, startTime) = try spawnProcess(named: "sleep")
+        var data = SessionData.mock()
+        data.pid = pid
+        data.pidStartTime = startTime - 0.5
+
+        XCTAssertTrue(data.isAlive, "the shared predicate accepts it")
+        XCTAssertFalse(SubworkerTree.liveProcessEvidence(data), "the Agents view does not")
+    }
+
+    func testLiveProcessEvidenceRejectsADeadProcess() {
+        var data = SessionData.mock()
+        data.pid = 0x7FFF_FFFE
+        data.pidStartTime = 1_000
+        XCTAssertFalse(SubworkerTree.liveProcessEvidence(data))
+    }
+
+    /// The capture-time parent walk can adopt another harness's still-running PID. Liveness
+    /// must reject it even though the process exists and its generation matches exactly.
+    func testLiveProcessEvidenceRejectsAForeignHarnessPID() throws {
+        let (pid, startTime) = try spawnProcess(named: "claude")
+
+        var sameHarness = SessionData.mock(source: SessionData.ccSource)
+        sameHarness.pid = pid
+        sameHarness.pidStartTime = startTime
+        XCTAssertTrue(
+            SubworkerTree.liveProcessEvidence(sameHarness),
+            "a live process whose binary matches the record's harness is accepted"
+        )
+
+        var foreign = sameHarness
+        foreign.source = SessionData.codexSource
+        XCTAssertFalse(
+            SubworkerTree.liveProcessEvidence(foreign),
+            "a 'claude' process cannot be hosting a codex record"
+        )
+    }
+
+    /// Jared's standard shape for a long Codex run is `nohup codex exec … & disown` from a
+    /// Claude Bash call, which reparents codex to launchd while it keeps working. Focus
+    /// liveness rejects an orphan because an interactive session that lost its shell cannot
+    /// be reached; the Agents view must not, or the runs most worth watching vanish the
+    /// moment their launching shell exits.
+    func testOrphanedDelegateIsDeadForFocusButLiveForTheAgentsView() throws {
+        let (pid, startTime) = try spawnOrphanedProcess()
+        var data = SessionData.mock(source: SessionData.codexSource)
+        data.pid = pid
+        data.pidStartTime = startTime
+
+        XCTAssertTrue(data.isOrphanedProcess)
+        XCTAssertFalse(data.isAlive, "focus-facing liveness still rejects a reparented process")
+        XCTAssertTrue(data.isRunningOwnedProcess, "the work itself is still running")
+        XCTAssertTrue(SubworkerTree.liveProcessEvidence(data))
+
+        let ccRoot = root(harnessSessionId: "cc-1")
+        var child = delegated(
+            harnessSessionId: "codex-1", source: SessionData.codexSource,
+            parentHarness: SessionData.ccSource, parentHarnessSessionId: "cc-1"
+        )
+        child.pid = pid
+        child.pidStartTime = startTime
+        XCTAssertEqual(
+            SubworkerTree.build(roots: [ccRoot], delegated: [child]).childCount, 1,
+            "parent linkage is parent_harness_session_id, not the Unix PPID"
+        )
+    }
+
+    /// Backgrounds `sleep` from a shell that then exits, so the sleep reparents to launchd.
+    private func spawnOrphanedProcess() throws -> (UInt32, TimeInterval) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cctop-orphan-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let pidFile = directory.appendingPathComponent("pid")
+
+        let shell = Process()
+        shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+        shell.arguments = ["-c", "/bin/sleep 60 & echo $! > \(pidFile.path)"]
+        try shell.run()
+        shell.waitUntilExit()
+
+        var reparented: UInt32?
+        for _ in 0..<200 {
+            if let text = try? String(contentsOf: pidFile, encoding: .utf8),
+               let candidate = UInt32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+               SessionData.processInfo(pid: candidate)?.kp_eproc.e_ppid == 1 {
+                reparented = candidate
+                break
+            }
+            usleep(20_000)
+        }
+        let pid = try XCTUnwrap(reparented, "the backgrounded sleep never reparented to launchd")
+        addTeardownBlock {
+            kill(Int32(pid), SIGKILL)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        return (pid, try XCTUnwrap(SessionData.processStartTime(pid: pid)))
+    }
+
+    /// Runs a copy of `/bin/sleep` under the given name so the kernel reports that name as
+    /// the process's `p_comm`, which is what harness matching reads.
+    private func spawnProcess(named name: String) throws -> (UInt32, TimeInterval) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cctop-liveness-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent(name)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/sleep"), to: executable)
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        addTeardownBlock {
+            process.terminate()
+            process.waitUntilExit()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let pid = UInt32(process.processIdentifier)
+        let startTime = try XCTUnwrap(SessionData.processStartTime(pid: pid))
+        return (pid, startTime)
+    }
+
+    func testBadgeActivityCollapsesAMultilineDetail() {
+        var multiline = agent("a1")
+        multiline.lastTool = "Bash"
+        multiline.lastToolDetail = "set -e\ncd build\n\n  make lint"
+        XCTAssertEqual(multiline.badgeActivity, "Explore: Bash set -e cd build make lint")
+    }
+
+    func testActivelyWorkingTracksTheLastToolEventAndDelegatedStatus() {
+        let now = Date()
+        var fresh = agent("fresh")
+        fresh.lastActivity = now.addingTimeInterval(-5)
+        var settled = agent("settled")
+        settled.lastActivity = now.addingTimeInterval(-SubworkerTree.activityPulseInterval - 1)
+
+        XCTAssertTrue(SubworkerTree.isActivelyWorking(.inProcess(fresh), now: now))
+        XCTAssertFalse(SubworkerTree.isActivelyWorking(.inProcess(settled), now: now))
+        XCTAssertFalse(
+            SubworkerTree.isActivelyWorking(.inProcess(agent("never")), now: now),
+            "a subagent that has run no tool is not moving"
+        )
+
+        var working = SessionData.mock(status: .working)
+        working.lastActivity = now.addingTimeInterval(-5)
+        XCTAssertTrue(SubworkerTree.isActivelyWorking(.delegated(working), now: now))
+
+        var waiting = working
+        waiting.status = .waitingPermission
+        XCTAssertFalse(
+            SubworkerTree.isActivelyWorking(.delegated(waiting), now: now),
+            "a blocked delegate is not moving"
+        )
+
+        var stalledWork = working
+        stalledWork.lastActivity = now.addingTimeInterval(-SubworkerTree.activityPulseInterval)
+        XCTAssertFalse(SubworkerTree.isActivelyWorking(.delegated(stalledWork), now: now))
+    }
+
+    func testElapsedDescriptionSwitchesFromSecondsToHoursAtOneHour() {
+        let now = Date()
+        func elapsed(_ seconds: TimeInterval) -> String {
+            SubworkerTree.elapsedDescription(since: now.addingTimeInterval(-seconds), asOf: now)
+        }
+
+        XCTAssertEqual(elapsed(0), "0m 00s")
+        XCTAssertEqual(elapsed(59), "0m 59s")
+        XCTAssertEqual(elapsed(60), "1m 00s")
+        XCTAssertEqual(elapsed(252), "4m 12s")
+        XCTAssertEqual(elapsed(3_599), "59m 59s")
+        XCTAssertEqual(elapsed(3_600), "1h 00m")
+        XCTAssertEqual(elapsed(3_840), "1h 04m")
+        XCTAssertEqual(elapsed(18_000), "5h 00m")
+    }
+
+    func testElapsedDescriptionClampsAFutureStart() {
+        let now = Date()
+        XCTAssertEqual(
+            SubworkerTree.elapsedDescription(since: now.addingTimeInterval(30), asOf: now), "0m 00s"
+        )
     }
 
     // MARK: - Staleness

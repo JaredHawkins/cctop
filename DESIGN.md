@@ -309,7 +309,7 @@ when you glance at it from peripheral vision.
 | Padding                   | 9 px horizontal · 8 px vertical inside an 8 px selection inset |
 | **Row 1 — title**         | 13 px semibold · `textPrimary` (`textSecondary` when idle)     |
 | Navigate chip (row 1 lead)| 16×16 status-colored square, `AppChrome.controlCornerRadius`, white digit (1–9) |
-| Subagent count            | 10 px · `agentBadge` (purple)                                  |
+| Subagent count            | 10 px · `agentBadge` (purple) · "N agents · <busiest child's activity>", one truncated line, opens the Agents view |
 | Status label              | 10.5 px medium. Idle/Dormant use `textMuted`; Working/Waiting/Compacting use a 6 px live semantic dot plus the matching contrast-safe text token; Permission uses the same split inside a stroke-free 10–13% tint capsule. |
 | Timestamp                 | 10.5 px · refreshed by the shared 10 s `PopupView` relative-time timer, never by row-local timers. "Just now" (≤ 5 s) → `statusWorkingText`; > 7 d → `textMuted` at 0.55 |
 | **Row 2 — meta (CLI)**    | `folder · branch · source` — folder shown only when `sessionName != projectName`. Branch 10 px monospaced, separators muted dots. |
@@ -443,7 +443,9 @@ Always black, regardless of theme — it's OS chrome that meets the camera notch
 
 Four equal-width 22 px primary segments and one fixed 28 px overflow control
 live in one compact track with 2 px inset and 8 px outer / 6 px inner radii.
-The overflow menu exposes Agents, Recent, and Cleanup with their counts. The selected tab uses a native-style thumb
+The overflow menu exposes Recent and Cleanup with their counts, plus Agents while
+its count is zero; once Agents has content it becomes a fifth segment after
+Dropped, in the same style, and leaves the menu. The selected tab uses a native-style thumb
 and subtle shadow, never an accent stroke. Hover is fill-only. Labels and
 tabular counts are 10 px with tight 2 px internal spacing and 1 px between segments; zero counts remain visible, while scanning and unseen Cleanup
 states keep their existing progress/attention cues. Ack mirrors acknowledged
@@ -460,15 +462,20 @@ title (subagent type, or the delegated session's display name), 10.5 px
 `textSecondary` task description, the 10.5 px monospace `›` command stripe reused
 from session card row 3, and a 10.5 px elapsed time. Depth indents 12 px per
 level, capped at three levels. A sub-worker silent for over 30 minutes drops to
-`textSecondary`/`textMuted` and its time reads "… · stale"; the row is never
-removed. Under each header a 10 px `textMuted` summary line reads "1 running \u{00B7} 1 stale
+`textSecondary`/`textMuted` and its time reads "… · stale". Nothing is ever deleted
+from storage, but rows do leave the view: a delegated run goes when its process
+exits, and an in-process entry goes when its parent session stops being active or
+when the 3-hour backstop passes. Under each header a 10 px `textMuted` summary line reads "1 running \u{00B7} 1 stale
 \u{00B7} 2 waiting", omitted when everything is running. Every row expands on click
 behind an 8 px rotating chevron, revealing 10.5 px label/value lines (label
 `textMuted` in a 66 px column, value `textSecondary`, monospaced for tool and
 branch lines) plus the spawning prompt in a bordered `groupedRowBackground` block
 capped at six lines. A row waiting on a permission prompt gets a 6 px
 `statusPermission` dot on its title line and renders that message in
-`statusPermissionText`. Rows carry no navigate number, acknowledge, drop, or hide
+`statusPermissionText`; a row whose last tool event is under 30 s old instead gets
+a 6 px `statusGreen` dot pulsing 1.0 to 0.45 over 1.2 s, static under Reduce
+Motion. This dot is the only repeating animation in the panel. Live rows show
+elapsed as `4m 12s` / `1h 04m`; stale rows keep the relative wording. Rows carry no navigate number, acknowledge, drop, or hide
 action, and the trailing Unattributed group collects sub-workers whose parent is
 not on screen. The session card's purple subagent count is the same 10 px badge, now a
 plain button that opens this view.

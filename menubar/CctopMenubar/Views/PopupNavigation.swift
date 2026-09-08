@@ -4,8 +4,26 @@ import SwiftUI
 enum PopupTab: CaseIterable, Hashable {
     case active, idle, acknowledged, dropped, agents, recent, cleanup
 
-    static let primaryCases: [PopupTab] = [.active, .idle, .acknowledged, .dropped]
-    static let secondaryCases: [PopupTab] = [.agents, .recent, .cleanup]
+    /// The selectors that are always segments in the row.
+    static let baseCases: [PopupTab] = [.active, .idle, .acknowledged, .dropped]
+
+    /// Agents earns a segment while it has something to show and falls back into the
+    /// overflow when it does not, so a running sub-worker is one click away without a
+    /// permanently empty selector taking width from the four that are always relevant.
+    static func primaryCases(agentsCount: Int) -> [PopupTab] {
+        agentsCount > 0 ? baseCases + [.agents] : baseCases
+    }
+
+    static func secondaryCases(agentsCount: Int) -> [PopupTab] {
+        agentsCount > 0 ? [.recent, .cleanup] : [.agents, .recent, .cleanup]
+    }
+
+    /// Left-to-right order as rendered: segments first, then the overflow menu. Agents sits
+    /// after Dropped in both placements, so keyboard cycling matches the screen either way
+    /// and `allCases` stays a valid cycle order.
+    static func orderedCases(agentsCount: Int) -> [PopupTab] {
+        primaryCases(agentsCount: agentsCount) + secondaryCases(agentsCount: agentsCount)
+    }
 
     var label: String {
         switch self {
@@ -87,20 +105,94 @@ enum PopupTab: CaseIterable, Hashable {
     }
 }
 
+// MARK: - Panel tab row
+
+extension PopupView {
+    // MARK: - Tab picker
+
+    var tabPicker: some View {
+        // One tree build decides placement and fills the segment's own count.
+        let agentsCount = subworkerTree.childCount
+        return HStack(spacing: 1) {
+            ForEach(PopupTab.primaryCases(agentsCount: agentsCount), id: \.self) { tab in
+                tabButton(
+                    tab.label,
+                    count: tab == .agents ? agentsCount : count(for: tab),
+                    tab: tab,
+                    isScanning: tab == .cleanup && cleanupIsScanning,
+                    hasAttention: tab == .cleanup && cleanupHasUnseenCandidates
+                )
+            }
+            SecondaryTabMenuView(
+                selectedTab: selectedTab,
+                cleanupIsScanning: cleanupIsScanning,
+                cleanupHasAttention: cleanupHasUnseenCandidates,
+                cases: PopupTab.secondaryCases(agentsCount: agentsCount),
+                count: { $0 == .agents ? agentsCount : count(for: $0) },
+                onSelect: selectTab
+            )
+        }
+        .padding(2)
+        .background(Color.segmentBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
+    func count(for tab: PopupTab) -> Int {
+        switch tab {
+        case .active: return activeSessionRows.count
+        case .idle: return idleSessionRows.count
+        case .acknowledged: return acknowledgedSessionRows.count
+        case .dropped: return droppedSessionRows.count
+        case .agents: return subworkerTree.childCount
+        case .recent: return recentTargets.count
+        case .cleanup: return actionableCleanupCandidates.count
+        }
+    }
+
+    private func tabButton(
+        _ label: String,
+        count: Int,
+        tab: PopupTab,
+        isScanning: Bool = false,
+        hasAttention: Bool = false
+    ) -> some View {
+        TabButtonView(
+            label: label,
+            count: count,
+            isScanning: isScanning,
+            hasAttention: hasAttention && selectedTab != tab,
+            isSelected: selectedTab == tab
+        ) {
+            selectTab(tab)
+        }
+        .help(tab.helpText)
+    }
+
+    func selectTab(_ tab: PopupTab) {
+        if overlayController.active != nil { closeOverlay(animated: false) }
+        withAnimation(.easeInOut(duration: 0.15)) { selectedTab = tab }
+        notifyLayoutChanged()
+    }
+}
+
 struct SecondaryTabMenuView: View {
     let selectedTab: PopupTab
     let cleanupIsScanning: Bool
     let cleanupHasAttention: Bool
+    /// The tabs currently living in the overflow; Agents moves in and out of this list.
+    let cases: [PopupTab]
     let count: (PopupTab) -> Int
     let onSelect: (PopupTab) -> Void
 
     private var isSelected: Bool {
-        PopupTab.secondaryCases.contains(selectedTab)
+        cases.contains(selectedTab)
     }
 
     var body: some View {
         Menu {
-            ForEach(PopupTab.secondaryCases, id: \.self) { tab in
+            ForEach(cases, id: \.self) { tab in
                 Button {
                     onSelect(tab)
                 } label: {
@@ -138,7 +230,7 @@ struct SecondaryTabMenuView: View {
         .menuIndicator(.hidden)
         .menuStyle(.borderlessButton)
         .fixedSize(horizontal: true, vertical: false)
-        .help("Agents, Recent, and Cleanup")
+        .help(cases.map(\.label).formattedAsList)
         .accessibilityLabel("More views")
         .accessibilityValue(isSelected ? selectedTab.label : "")
     }
@@ -193,6 +285,19 @@ enum PopupSelectionTarget: Equatable {
         case .cleanup:
             guard index < context.cleanupCandidates.count else { return nil }
             return .cleanupCandidate(context.cleanupCandidates[index])
+        }
+    }
+}
+
+extension Array where Element == String {
+    /// "Recent and Cleanup" / "Agents, Recent, and Cleanup" — help text for the overflow,
+    /// which changes membership as Agents moves in and out of the segment row.
+    var formattedAsList: String {
+        switch count {
+        case 0: return ""
+        case 1: return self[0]
+        case 2: return "\(self[0]) and \(self[1])"
+        default: return "\(dropLast().joined(separator: ", ")), and \(self[count - 1])"
         }
     }
 }

@@ -3575,7 +3575,8 @@ final class SessionManagerVisibilityTests: XCTestCase {
             projectPath: (root as NSString).appendingPathComponent("p")
         )
         delegatedActive.harnessSessionId = "codex-delegated"
-        delegatedActive.pidStartTime = SessionData.processStartTime(pid: livePid)
+        // No captured process generation, so the Agents view judges it on reported work.
+        delegatedActive.status = .working
         delegatedActive.isSubagentSession = true
         delegatedActive.hidden = true
         delegatedActive.parentHarness = SessionData.ccSource
@@ -3621,7 +3622,8 @@ final class SessionManagerVisibilityTests: XCTestCase {
         // The Agents view still reaches it, hanging off the session that spawned it.
         let tree = SubworkerTree.build(
             roots: manager.userSessions,
-            delegated: manager.delegatedSessionRecords.map(\.data)
+            delegated: manager.delegatedSessionRecords.map(\.data),
+            isProcessAlive: { _ in true }   // this test covers publication, not liveness
         )
         XCTAssertEqual(tree.childCount, 1)
         XCTAssertNotNil(tree.groups.first?.root)
