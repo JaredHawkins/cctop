@@ -66,9 +66,21 @@ and must not be used as the source of an app copy.
    `dist/cctop.app`. Do not merge the assembled bundle into a raw Xcode app.
    Merging leaves Debug dylibs and XCTest frameworks behind and invalidates the
    release signature.
-4. If macOS App Management blocks a shell move or replacement, stop and use
-   Finder's Replace operation. Do not work around the restriction by copying
-   only `CctopMenubar`; that recreates the missing-hook failure.
+4. If macOS App Management blocks the shell move (`mv: ... Permission denied`,
+   seen 2026-09-08 with the sandbox on or off after earlier moves had worked),
+   overwrite in place instead: quit the app, `ditto` the old bundle out to the
+   dated backup dir, then `ditto dist/cctop.app /Applications/cctop.app` over
+   the existing container. Verify the file lists match afterwards:
+
+   ```bash
+   diff <(cd dist/cctop.app && find . -type f | sort) \
+        <(cd /Applications/cctop.app && find . -type f | sort)
+   ```
+
+   If `ditto` is refused too, stop and use Finder's Replace operation, or grant
+   the terminal App Management in System Settings. Do not work around the
+   restriction by copying only `CctopMenubar`; that recreates the missing-hook
+   failure.
 5. Launch exactly `/Applications/cctop.app`.
 
 A recoverable shell replacement, when App Management permits it, has this
