@@ -548,7 +548,8 @@ final class SubworkerTreeTests: XCTestCase {
         let badge = SubworkerTree.badge(for: session, now: now)
 
         XCTAssertEqual(badge?.count, 2)
-        XCTAssertEqual(badge?.label, "2 agents \u{00B7} Explore: Grep PopupTab")
+        XCTAssertEqual(badge?.waiting, 0)
+        XCTAssertEqual(badge?.label, "2 agents", "activity text belongs in the Agents view, not on the card")
     }
 
     func testBadgeLabelFallsBackToTheCountAloneAndPluralizes() {
@@ -559,11 +560,13 @@ final class SubworkerTreeTests: XCTestCase {
             "1 agent"
         )
 
-        var toolOnly = agent("a1")
-        toolOnly.lastTool = "Bash"
+        var blocked = agent("a1")
+        blocked.waitingMessage = "Allow Bash: make swift-test"
+        let mixed = SessionData.mock(activeSubagents: [blocked, agent("a2"), agent("a3")])
+        XCTAssertEqual(SubworkerTree.badge(for: mixed, now: now)?.waiting, 1)
         XCTAssertEqual(
-            SubworkerTree.badge(for: SessionData.mock(activeSubagents: [toolOnly]), now: now)?.label,
-            "1 agent \u{00B7} Explore: Bash"
+            SubworkerTree.badge(for: mixed, now: now)?.label,
+            "3 agents \u{00B7} 1 waiting"
         )
     }
 
@@ -730,13 +733,6 @@ final class SubworkerTreeTests: XCTestCase {
         let pid = UInt32(process.processIdentifier)
         let startTime = try XCTUnwrap(SessionData.processStartTime(pid: pid))
         return (pid, startTime)
-    }
-
-    func testBadgeActivityCollapsesAMultilineDetail() {
-        var multiline = agent("a1")
-        multiline.lastTool = "Bash"
-        multiline.lastToolDetail = "set -e\ncd build\n\n  make lint"
-        XCTAssertEqual(multiline.badgeActivity, "Explore: Bash set -e cd build make lint")
     }
 
     func testActivelyWorkingTracksTheLastToolEventAndDelegatedStatus() {

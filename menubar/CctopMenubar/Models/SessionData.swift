@@ -263,14 +263,6 @@ struct SubagentInfo: Codable, Equatable {
     /// The best available "still working" timestamp for staleness display.
     var effectiveActivity: Date { lastActivity ?? startedAt }
 
-    /// "Explore: Grep PopupTab" — what this subagent is doing, for the parent card's badge.
-    /// Nil until it runs its first tool.
-    var badgeActivity: String? {
-        guard let lastTool else { return nil }
-        guard let lastToolDetail else { return "\(agentType): \(lastTool)" }
-        return "\(agentType): \(lastTool) \(lastToolDetail.whitespaceCollapsed)"
-    }
-
     /// True once a queued spawn has been paired into this entry, so a later `SubagentStart`
     /// for the same id cannot consume a second one.
     var hasSpawnMetadata: Bool {

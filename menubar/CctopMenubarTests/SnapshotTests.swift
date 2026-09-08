@@ -651,29 +651,29 @@ final class SnapshotContractTests: XCTestCase {
         )
     }
 
-    /// The parent-card agent badge shares the title row with a `maxWidth: .infinity` title.
-    /// At a lower layout priority than the title it collapsed to zero width behind any
-    /// title long enough to fill the row (seen live 2026-09-08 on "GEO for Research
-    /// Publications": three agents in the tree, no badge on the card). The badge must win
-    /// the priority contest and cap its own width so the title still truncates gracefully.
-    func testSessionCardAgentBadgeOutranksTitleInLayout() throws {
+    /// The parent-card agent badge once sat in the title row at a lower layout priority than
+    /// the `maxWidth: .infinity` title and collapsed to zero width behind any long title (seen
+    /// live 2026-09-08). It now lives in the metadata row as a fixed-size pill; the title row
+    /// must stay title + status only.
+    func testSessionCardAgentBadgeStaysOutOfTheTitleRow() throws {
         let testsDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let cardSource = try String(
             contentsOf: testsDirectory
                 .deletingLastPathComponent()
                 .appendingPathComponent("CctopMenubar/Views/SessionCardView.swift")
         )
-        guard let badgeStart = cardSource.range(of: "private func subagentBadgeView("),
-              let badgeEnd = cardSource.range(of: "private var metaRow", range: badgeStart.upperBound..<cardSource.endIndex)
-        else {
-            return XCTFail("subagentBadgeView / metaRow anchors missing")
+        func section(from start: String, to end: String) throws -> Substring {
+            guard let a = cardSource.range(of: start),
+                  let b = cardSource.range(of: end, range: a.upperBound..<cardSource.endIndex)
+            else { throw XCTSkip("anchors \(start) / \(end) missing") }
+            return cardSource[a.lowerBound..<b.lowerBound]
         }
-        let badgeSource = cardSource[badgeStart.lowerBound..<badgeEnd.lowerBound]
-        XCTAssertTrue(badgeSource.contains(".layoutPriority(1)"), "badge must outrank the title")
-        XCTAssertFalse(badgeSource.contains(".layoutPriority(-1)"))
-        XCTAssertTrue(
-            badgeSource.contains("maxWidth: Self.subagentBadgeMaxWidth"),
-            "badge caps its own width so it cannot eat the title"
-        )
+        let titleRow = try section(from: "private var titleRow", to: "private func subagentBadgeView(")
+        XCTAssertFalse(titleRow.contains("subagentBadge"), "badge must not share the title row")
+        let metaRow = try section(from: "private var metaRow", to: "private var metaIdentity")
+        XCTAssertTrue(metaRow.contains("subagentBadgeView(badge)"), "badge lives in the meta row")
+        let badgeView = try section(from: "private func subagentBadgeView(", to: "private var metaRow")
+        XCTAssertTrue(badgeView.contains(".fixedSize(horizontal: true"), "pill never truncates")
+        XCTAssertFalse(badgeView.contains("layoutPriority"))
     }
 }

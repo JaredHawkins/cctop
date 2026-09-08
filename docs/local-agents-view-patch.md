@@ -232,16 +232,19 @@ permission-colored dot on its title line.
   either way and keyboard cycling always matches the screen. Selecting Agents and
   then watching the count fall to zero keeps the tab selected, showing its empty
   state; only the segment moves.
-- **The parent card names the busiest child.** `SubworkerTree.badge(for:now:)`
-  renders "3 agents · Explore: Grep PopupTab" from the in-process subagent with
-  the most recent `effectiveActivity`. Its count comes from
-  `visibleSubagents(of:now:)`, the same predicate the tree itself uses, so the card
-  can never advertise rows the Agents view has already dropped — a dormant parent
-  or an aged-out entry shows no badge at all, and the accessibility label uses the
-  same number. Delegated runs are separate records and are not on the card's data,
-  so they never appear there. The badge is still the
-  button that opens the Agents view, still 10 px `agentBadge`, and stays one
-  truncated line so the title row keeps its 18 px height.
+- **The parent card counts its children.** `SubworkerTree.badge(for:now:)` yields a
+  count plus how many children are blocked on a permission; the card renders it as a
+  quiet 9.5 px pill ("3 agents", or "3 agents · 1 waiting" in the permission color) in
+  the metadata row beside the branch. The count comes from `visibleSubagents(of:now:)`,
+  the same predicate the tree itself uses, so the card can never advertise rows the
+  Agents view has already dropped — a dormant parent or an aged-out entry shows no
+  badge at all, and the accessibility label uses the same number. Delegated runs are
+  separate records and are not on the card's data, so they never appear there. The
+  pill is the button that opens the Agents view. It deliberately carries no activity
+  text: an earlier version put "3 agents · default: Bash rg …" in the title row, where
+  it first collapsed to zero width behind a long title and then, once given priority,
+  truncated the title to "GEO for…"; what the busiest child is doing belongs in the
+  Agents view.
 - **Motion means "right now".** A row whose last tool event is under
   `activityPulseInterval` (30 s) old shows a pulsing `statusGreen` dot — opacity
   1.0 to 0.45, 1.2 s ease-in-out, autoreversing. Delegated rows additionally have

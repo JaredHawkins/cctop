@@ -50,44 +50,35 @@ struct SessionCardView: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let badge = subagentBadge {
-                subagentBadgeView(badge)
-            }
-
             statusLabel
 
         }
         .frame(height: 18)
     }
 
-    /// Widest the badge may grow before its own tail truncates, so a long activity line
-    /// never eats the whole title.
-    static let subagentBadgeMaxWidth: CGFloat = 150
-
-    /// Same 10 px purple metadata as before, now carrying the busiest child's activity; it
-    /// stays clickable when the panel supplies a destination. `.plain` keeps the button
-    /// chrome-free, and the single truncated line keeps the title row's 18 px height.
-    /// The badge is laid out BEFORE the title (priority 1 against the title's 0): the title
-    /// has `maxWidth: .infinity`, so at a lower priority the badge collapsed to zero width
-    /// behind any title long enough to fill the row and vanished from the card.
+    /// Quiet count pill in the metadata row: "3 agents", or "3 agents · 1 waiting" in the
+    /// permission color when a child is blocked. It lives beside the branch, where the row
+    /// has slack, rather than in the title row, where the title and status already compete
+    /// for width. `.plain` keeps the button chrome-free; `fixedSize` keeps it whole.
     @ViewBuilder
     private func subagentBadgeView(_ badge: SubworkerTree.Badge) -> some View {
-        let text = Text(badge.label)
-            .font(.system(size: 10))
-            .foregroundStyle(Color.agentBadge)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: Self.subagentBadgeMaxWidth, alignment: .trailing)
-            .layoutPriority(1)
+        let tint = badge.waiting > 0 ? Color.statusPermissionText : Color.agentBadge
+        let pill = Text(badge.label)
+            .font(.system(size: 9.5, weight: .medium))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .fixedSize(horizontal: true, vertical: false)
         if let onShowAgents {
-            Button(action: onShowAgents) { text }
+            Button(action: onShowAgents) { pill }
                 .buttonStyle(.plain)
                 .help("Show agents")
                 .accessibilityLabel(
                     "Show \(badge.count) agent\(badge.count == 1 ? "" : "s")"
                 )
         } else {
-            text
+            pill
         }
     }
 
@@ -95,6 +86,9 @@ struct SessionCardView: View {
         HStack(spacing: 8) {
             metaIdentity
                 .lineLimit(1)
+            if let badge = subagentBadge {
+                subagentBadgeView(badge)
+            }
             Spacer(minLength: 0)
             Text(session.lastActivity.relativeDescription(asOf: relativeTimeNow))
                 .font(.system(size: 10.5))
