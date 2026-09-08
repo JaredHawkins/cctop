@@ -125,6 +125,7 @@
 		STC000010000000000000001 /* StatusColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = STC000020000000000000001 /* StatusColors.swift */; };
 		SDP000010000000000000001 /* SessionDisplayPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = SDP000020000000000000001 /* SessionDisplayPolicy.swift */; };
 		SWT000010000000000000001 /* SubworkerTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWT000020000000000000001 /* SubworkerTree.swift */; };
+		SWTB00010000000000000001 /* SubworkerTree+Badge.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWTB00020000000000000001 /* SubworkerTree+Badge.swift */; };
 		SCN000010000000000000001 /* StatusCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCN000020000000000000001 /* StatusCounts.swift */; };
 		MRT000010000000000000001 /* MenubarIconRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = MRT000020000000000000001 /* MenubarIconRendererTests.swift */; };
 		SCT000010000000000000001 /* StatusCountsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCT000020000000000000001 /* StatusCountsTests.swift */; };
@@ -312,6 +313,7 @@
 		STC000020000000000000001 /* StatusColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusColors.swift; sourceTree = "<group>"; };
 		SDP000020000000000000001 /* SessionDisplayPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDisplayPolicy.swift; sourceTree = "<group>"; };
 		SWT000020000000000000001 /* SubworkerTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubworkerTree.swift; sourceTree = "<group>"; };
+		SWTB00020000000000000001 /* SubworkerTree+Badge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SubworkerTree+Badge.swift"; sourceTree = "<group>"; };
 		SCN000020000000000000001 /* StatusCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCounts.swift; sourceTree = "<group>"; };
 		SCTRL0020000000000000001 /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
 		NROW00020000000000000001 /* NotificationSettingsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsRow.swift; sourceTree = "<group>"; };
@@ -486,6 +488,7 @@
 				STC000020000000000000001 /* StatusColors.swift */,
 				SDP000020000000000000001 /* SessionDisplayPolicy.swift */,
 				SWT000020000000000000001 /* SubworkerTree.swift */,
+				SWTB00020000000000000001 /* SubworkerTree+Badge.swift */,
 				SCN000020000000000000001 /* StatusCounts.swift */,
 				PPO000020000000000000001 /* PanelPositioning.swift */,
 				WCC000020000000000000001 /* WorktreeCleanupCandidate.swift */,
@@ -801,6 +804,7 @@
 				STC000010000000000000001 /* StatusColors.swift in Sources */,
 				SDP000010000000000000001 /* SessionDisplayPolicy.swift in Sources */,
 				SWT000010000000000000001 /* SubworkerTree.swift in Sources */,
+				SWTB00010000000000000001 /* SubworkerTree+Badge.swift in Sources */,
 				SCN000010000000000000001 /* StatusCounts.swift in Sources */,
 				SCTRL0010000000000000001 /* SettingsControls.swift in Sources */,
 				NROW00010000000000000001 /* NotificationSettingsRow.swift in Sources */,

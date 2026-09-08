@@ -11,6 +11,9 @@ struct SessionCardView: View {
     /// Supplied by the panel so the subagent count can open the Agents view. Nil leaves
     /// the badge as inert metadata (previews, snapshots).
     var onShowAgents: (() -> Void)?
+    /// Supplied by the panel from the same tree the Agents tab renders, so the count and the
+    /// account marks can never disagree with that tab. Nil when the session has no rows there.
+    var subagentBadge: SubworkerTree.Badge?
 
     @State private var isHovered = false
     @Environment(\.colorScheme) private var colorScheme
@@ -63,20 +66,31 @@ struct SessionCardView: View {
     @ViewBuilder
     private func subagentBadgeView(_ badge: SubworkerTree.Badge) -> some View {
         let tint = badge.waiting > 0 ? Color.statusPermissionText : Color.agentBadge
-        let pill = Text(badge.label)
-            .font(.system(size: 9.5, weight: .medium))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .fixedSize(horizontal: true, vertical: false)
+        // Account monograms ride inside the pill: "4 agents [K]" answers "is any of this
+        // work on another login" without a second glance at the Agents tab.
+        let pill = HStack(spacing: 4) {
+            Text(badge.label)
+                .font(.system(size: 9.5, weight: .medium))
+            ForEach(badge.accountMonograms, id: \.self) { monogram in
+                Text(monogram)
+                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                    .frame(width: 11, height: 11)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .stroke(tint.opacity(0.7), lineWidth: 1)
+                    )
+            }
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .fixedSize(horizontal: true, vertical: false)
         if let onShowAgents {
             Button(action: onShowAgents) { pill }
                 .buttonStyle(.plain)
                 .help("Show agents")
-                .accessibilityLabel(
-                    "Show \(badge.count) agent\(badge.count == 1 ? "" : "s")"
-                )
+                .accessibilityLabel(badge.accessibilityLabel)
         } else {
             pill
         }
@@ -247,12 +261,6 @@ struct SessionCardView: View {
 
     // MARK: - Computed copy
 
-    /// Sub-workers the Agents view would actually show for this session, so the card can
-    /// never advertise a count that opens onto an empty tab.
-    private var subagentBadge: SubworkerTree.Badge? {
-        SubworkerTree.badge(for: session, now: relativeTimeNow)
-    }
-
     /// Text for the third row when the session is working/compacting — the command stripe.
     /// Reuses `SessionData.contextLine` formatting (Reading X.swift, Running: foo, etc.).
     private var workingCommandText: String? {
@@ -295,6 +303,9 @@ struct SessionCardView: View {
         ]
         if let badge = subagentBadge {
             parts.append("\(badge.count) active subagent\(badge.count == 1 ? "" : "s")")
+            if !badge.accounts.isEmpty {
+                parts.append("some on \(badge.accounts.joined(separator: " and ")) account")
+            }
         }
         if let context = session.contextLine {
             parts.append(context)
@@ -410,7 +421,8 @@ struct SessionCardView: View {
                 SubagentInfo(agentId: "a3", agentType: "Plan", startedAt: Date())
             ]
         ),
-        showSourceBadge: true
+        showSourceBadge: true,
+        subagentBadge: SubworkerTree.Badge(count: 4, waiting: 1, accounts: ["klick"])
     )
     .frame(width: 340).padding()
 }

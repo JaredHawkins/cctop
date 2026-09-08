@@ -161,11 +161,18 @@ extension PopupView {
         tab: PopupTab,
         showNavigateNumbers: Bool = false
     ) -> some View {
-        ScrollViewReader { proxy in
+        // One tree per list render, not one per row: the liveness probe behind it is a
+        // sysctl per delegated record.
+        let badges = subworkerTree.badges
+        return ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 2) {
                     ForEach(rows) { row in
-                        sessionRow(row, showNavigateNumbers: showNavigateNumbers)
+                        sessionRow(
+                            row,
+                            showNavigateNumbers: showNavigateNumbers,
+                            subagentBadge: row.presentation == .dropped ? nil : badges[row.id]
+                        )
                     }
                 }
                 .padding(.bottom, AppChrome.listVerticalPadding)
@@ -181,7 +188,9 @@ extension PopupView {
     }
 
     // swiftlint:disable:next function_body_length
-    private func sessionRow(_ row: PanelSessionRow, showNavigateNumbers: Bool) -> some View {
+    private func sessionRow(
+        _ row: PanelSessionRow, showNavigateNumbers: Bool, subagentBadge: SubworkerTree.Badge?
+    ) -> some View {
         let focusStrategy = resolveFocusStrategy(session: row.session)
         let focusActionTitle = focusStrategy.actionTitle
         return SessionCardView(
@@ -191,7 +200,8 @@ extension PopupView {
             isSelected: selectedSessionIdentity == row.id,
             relativeTimeNow: relativeTimeNow,
             presentationStatusLabel: row.presentation.statusLabel,
-            onShowAgents: agentsBadgeAction(for: row)
+            onShowAgents: agentsBadgeAction(for: row),
+            subagentBadge: subagentBadge
         )
         .id(row.id)
         .onTapGesture { focusSession(row.session) }

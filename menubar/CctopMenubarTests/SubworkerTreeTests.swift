@@ -570,6 +570,40 @@ final class SubworkerTreeTests: XCTestCase {
         )
     }
 
+    /// The panel's card badge comes from the group, so delegated children count too and the
+    /// accounts they run under surface as monograms.
+    func testGroupBadgeCountsDelegatedChildrenAndNamesTheirAccounts() {
+        let now = Date()
+        var blocked = agent("a1")
+        blocked.waitingMessage = "Allow Bash"
+        let root = SessionData.mock(
+            id: "root", harnessSessionId: "root-h", source: "cc", activeSubagents: [blocked, agent("a2")]
+        )
+        var klick = SessionData.mock(
+            id: "codex-k", harnessSessionId: "k", status: .working, source: "codex", account: "klick"
+        )
+        klick.isSubagentSession = true
+        klick.parentHarness = "cc"
+        klick.parentHarnessSessionId = "root-h"
+        var personal = SessionData.mock(
+            id: "codex-p", harnessSessionId: "p", status: .waitingPermission, source: "codex"
+        )
+        personal.isSubagentSession = true
+        personal.parentHarness = "cc"
+        personal.parentHarnessSessionId = "root-h"
+
+        let tree = buildTree(roots: [rootSession(root)], delegated: [klick, personal], now: now)
+        let badge = try? XCTUnwrap(tree.badges[SessionIdentityPolicy.logicalIdentity(for: root)])
+        XCTAssertEqual(badge?.count, 4, "two in-process + two delegated, same as the tab")
+        XCTAssertEqual(badge?.count, tree.childCount)
+        XCTAssertEqual(badge?.waiting, 2, "one in-process waiting message + one delegated permission")
+        XCTAssertEqual(badge?.accounts, ["klick"], "only delegated children can introduce a login")
+        XCTAssertEqual(badge?.accountMonograms, ["K"])
+        XCTAssertEqual(badge?.label, "4 agents \u{00B7} 2 waiting")
+        XCTAssertEqual(badge?.accessibilityLabel, "Show 4 agents, 2 waiting, some on klick account")
+        XCTAssertTrue(buildTree(roots: [rootSession(SessionData.mock(id: "lonely"))]).badges.isEmpty)
+    }
+
     /// The card must never advertise sub-workers the Agents view has already dropped.
     func testBadgeCountsOnlyTheSubagentsTheTreeWouldShow() {
         let now = Date()

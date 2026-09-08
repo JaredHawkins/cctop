@@ -309,7 +309,7 @@ when you glance at it from peripheral vision.
 | Padding                   | 9 px horizontal · 8 px vertical inside an 8 px selection inset |
 | **Row 1 — title**         | 13 px semibold · `textPrimary` (`textSecondary` when idle)     |
 | Navigate chip (row 1 lead)| 16×16 status-colored square, `AppChrome.controlCornerRadius`, white digit (1–9) |
-| Subagent count            | 9.5 px medium pill in the metadata row · `agentBadge` (purple), or `statusPermissionText` when a child is blocked · "N agents" / "N agents · 1 waiting", never truncated, opens the Agents view |
+| Subagent count            | 9.5 px medium pill in the metadata row · `agentBadge` (purple), or `statusPermissionText` when a child is blocked · "N agents" / "N agents · 1 waiting", plus an 11 px monogram square per non-default account among the delegated children ("4 agents [K]") · counts the Agents tab's rows for this root · never truncated, opens the Agents view |
 | Status label              | 10.5 px medium. Idle/Dormant use `textMuted`; Working/Waiting/Compacting use a 6 px live semantic dot plus the matching contrast-safe text token; Permission uses the same split inside a stroke-free 10–13% tint capsule. |
 | Timestamp                 | 10.5 px · refreshed by the shared 10 s `PopupView` relative-time timer, never by row-local timers. "Just now" (≤ 5 s) → `statusWorkingText`; > 7 d → `textMuted` at 0.55 |
 | **Row 2 — meta (CLI)**    | `folder · branch · source` — folder shown only when `sessionName != projectName`. Branch 10 px monospaced, separators muted dots. |

@@ -232,15 +232,19 @@ permission-colored dot on its title line.
   either way and keyboard cycling always matches the screen. Selecting Agents and
   then watching the count fall to zero keeps the tab selected, showing its empty
   state; only the segment moves.
-- **The parent card counts its children.** `SubworkerTree.badge(for:now:)` yields a
-  count plus how many children are blocked on a permission; the card renders it as a
-  quiet 9.5 px pill ("3 agents", or "3 agents · 1 waiting" in the permission color) in
-  the metadata row beside the branch. The count comes from `visibleSubagents(of:now:)`,
-  the same predicate the tree itself uses, so the card can never advertise rows the
-  Agents view has already dropped — a dormant parent or an aged-out entry shows no
-  badge at all, and the accessibility label uses the same number. Delegated runs are
-  separate records and are not on the card's data, so they never appear there. The
-  pill is the button that opens the Agents view. It deliberately carries no activity
+- **The parent card counts its children, from the tree.** `Snapshot.badges` yields one
+  `Badge` per root (`SubworkerTree.badge(for: Group)`): the group's node count, in-process
+  and delegated alike, how many are blocked on a permission, and which non-default
+  accounts the delegated children run under. The panel builds the tree once per list
+  render and hands each card its badge, so the pill can never disagree with the Agents
+  tab (an earlier version counted only `active_subagents` and read "3 agents" while the
+  tab listed four). The card renders a quiet 9.5 px pill ("4 agents", or "4 agents ·
+  1 waiting" in the permission color) in the metadata row beside the branch, with one
+  small monogram square per account inside the pill ("4 agents [K]"), answering "is any
+  of this work on the Klick login" from the Active tab. In-process subagents share their
+  parent's login, so only delegated records introduce a monogram; the parent's own
+  `AccountMarkView` says which login the parent is. Dropped rows get no badge. The pill
+  is the button that opens the Agents view. It deliberately carries no activity
   text: an earlier version put "3 agents · default: Bash rg …" in the title row, where
   it first collapsed to zero width behind a long title and then, once given priority,
   truncated the title to "GEO for…"; what the busiest child is doing belongs in the

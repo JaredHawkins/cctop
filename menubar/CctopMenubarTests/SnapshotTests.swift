@@ -675,5 +675,9 @@ final class SnapshotContractTests: XCTestCase {
         let badgeView = try section(from: "private func subagentBadgeView(", to: "private var metaRow")
         XCTAssertTrue(badgeView.contains(".fixedSize(horizontal: true"), "pill never truncates")
         XCTAssertFalse(badgeView.contains("layoutPriority"))
+        XCTAssertFalse(
+            cardSource.contains("SubworkerTree.badge(for: session"),
+            "the card takes its badge from the panel's tree, never computes its own"
+        )
     }
 }

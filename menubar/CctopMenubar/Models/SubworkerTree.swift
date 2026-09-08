@@ -101,6 +101,17 @@ enum SubworkerTree {
         /// Total sub-workers across every group and depth. This is the tab's count.
         var childCount: Int { groups.reduce(0) { $0 + $1.nodes.count } }
         var isEmpty: Bool { groups.isEmpty }
+
+        /// One badge per root, keyed by the root's logical identity, so a session card and
+        /// the Agents tab are always reading the same rows.
+        var badges: [SessionIdentityPolicy.LogicalIdentity: Badge] {
+            var result: [SessionIdentityPolicy.LogicalIdentity: Badge] = [:]
+            for group in groups {
+                guard let root = group.root else { continue }
+                result[root.identity] = SubworkerTree.badge(for: group)
+            }
+            return result
+        }
     }
 
     /// Matching is an exact byte comparison of the raw harness reference. Codex keys its
@@ -199,30 +210,6 @@ enum SubworkerTree {
     static func visibleSubagents(of data: SessionData, now: Date) -> [SubagentInfo] {
         guard data.lifecycle == .active else { return [] }
         return (data.activeSubagents ?? []).filter { isWithinVisibilityWindow($0, now: now) }
-    }
-
-    /// Parent-card badge: how many sub-workers this session is showing, and how many of them
-    /// are blocked on a permission. Nil when the Agents view would show none, so the badge
-    /// and the tab always agree. Deliberately no activity text: what the busiest child is
-    /// doing belongs in the Agents view, not squeezed into a session card.
-    struct Badge: Equatable {
-        let count: Int
-        let waiting: Int
-
-        var label: String {
-            let text = "\(count) agent\(count == 1 ? "" : "s")"
-            guard waiting > 0 else { return text }
-            return "\(text) \u{00B7} \(waiting) waiting"
-        }
-    }
-
-    static func badge(for data: SessionData, now: Date) -> Badge? {
-        let visible = visibleSubagents(of: data, now: now)
-        guard !visible.isEmpty else { return nil }
-        return Badge(
-            count: visible.count,
-            waiting: visible.filter { $0.waitingMessage != nil }.count
-        )
     }
 
     /// A row whose last tool event is this fresh reads as moving right now.
