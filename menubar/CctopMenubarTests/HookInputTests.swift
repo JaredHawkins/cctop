@@ -340,6 +340,61 @@ final class HookInputTests: XCTestCase {
         XCTAssertNil(codex.delegatedSessionEvidence(environment: ["CODEX_THREAD_ID": "s"]))
     }
 
+    /// Same-harness delegation has no native marker, so the delegate wrappers export an
+    /// explicit pair. It is a fallback: the native rules stay exact when they fire.
+    func testExplicitParentPairDelegatesSameHarnessChildren() throws {
+        let claude = try hookInput(harness: "cc")
+        XCTAssertEqual(
+            claude.delegatedSessionEvidence(environment: [
+                "CLAUDE_CODE_CHILD_SESSION": "", "CLAUDE_CODE_SESSION_ID": "s",
+                "CCTOP_PARENT_HARNESS": "cc", "CCTOP_PARENT_SESSION_ID": "parent-uuid"
+            ]),
+            HookInput.DelegatedSessionEvidence(
+                parentHarness: SessionData.ccSource, parentHarnessSessionId: "parent-uuid"
+            )
+        )
+        let codex = try hookInput(harness: "codex")
+        XCTAssertEqual(
+            codex.delegatedSessionEvidence(environment: [
+                "CODEX_THREAD_ID": "s",
+                "CCTOP_PARENT_HARNESS": "codex", "CCTOP_PARENT_SESSION_ID": "thread-parent"
+            ]),
+            HookInput.DelegatedSessionEvidence(
+                parentHarness: SessionData.codexSource, parentHarnessSessionId: "thread-parent"
+            )
+        )
+    }
+
+    func testExplicitParentPairIsIgnoredWhenIncompleteUnknownOrSelf() throws {
+        let claude = try hookInput(harness: "cc")
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: ["CCTOP_PARENT_HARNESS": "cc"]))
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: ["CCTOP_PARENT_SESSION_ID": "p"]))
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: [
+            "CCTOP_PARENT_HARNESS": "", "CCTOP_PARENT_SESSION_ID": "p"
+        ]))
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: [
+            "CCTOP_PARENT_HARNESS": "../etc", "CCTOP_PARENT_SESSION_ID": "p"
+        ]))
+        // A stale pair naming the session itself (inherited from its own launcher) is not a parent.
+        XCTAssertNil(claude.delegatedSessionEvidence(environment: [
+            "CCTOP_PARENT_HARNESS": "cc", "CCTOP_PARENT_SESSION_ID": "s"
+        ]))
+    }
+
+    /// The native cross-harness rule is exact and outranks an inherited explicit pair.
+    func testNativeRuleOutranksExplicitParentPair() throws {
+        let claude = try hookInput(harness: "cc")
+        XCTAssertEqual(
+            claude.delegatedSessionEvidence(environment: [
+                "CODEX_THREAD_ID": "thread-uuid",
+                "CCTOP_PARENT_HARNESS": "cc", "CCTOP_PARENT_SESSION_ID": "grandparent"
+            ]),
+            HookInput.DelegatedSessionEvidence(
+                parentHarness: SessionData.codexSource, parentHarnessSessionId: "thread-uuid"
+            )
+        )
+    }
+
     func testExplicitSubagentPayloadStaysDelegatedWithoutAParent() throws {
         let opencode = try hookInput(harness: "opencode", isSubagent: true)
         XCTAssertEqual(opencode.delegatedSessionEvidence(environment: [:]), .unattributed)

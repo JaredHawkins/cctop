@@ -174,8 +174,28 @@ struct HookInput: Codable {
                 parentHarnessSessionId: threadId
             )
         }
+        if let explicit = explicitParentEvidence(environment: environment) { return explicit }
         if isSubagentSession == true { return .unattributed }
         return nil
+    }
+
+    /// Environment keys a launcher sets on purpose to name the parent it delegates on behalf
+    /// of. Same-harness delegation has no native marker: a `claude -p` launched by Claude
+    /// overwrites `CLAUDE_CODE_SESSION_ID` with its own id, and a nested `codex exec` does
+    /// the same with `CODEX_THREAD_ID`. The delegate wrappers export these before launching.
+    static let explicitParentHarnessKey = "CCTOP_PARENT_HARNESS"
+    static let explicitParentSessionIdKey = "CCTOP_PARENT_SESSION_ID"
+
+    /// Explicit pair, honored after the native rules (which are exact when they fire) and
+    /// only when both values are non-empty, the harness is one cctop knows, and the parent
+    /// is not the session itself.
+    func explicitParentEvidence(environment: [String: String]) -> DelegatedSessionEvidence? {
+        guard let harness = Self.nonEmpty(environment[Self.explicitParentHarnessKey]),
+              let parentId = Self.nonEmpty(environment[Self.explicitParentSessionIdKey]),
+              Self.knownHarnesses.contains(harness),
+              !(harness == resolvedHarnessName && parentId == sessionId)
+        else { return nil }
+        return DelegatedSessionEvidence(parentHarness: harness, parentHarnessSessionId: parentId)
     }
 
     func hasDelegatedSessionEvidence(environment: [String: String]) -> Bool {

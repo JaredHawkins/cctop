@@ -29,7 +29,18 @@ session that owns it.
 |---|---|---|---|
 | `codex` | `CLAUDE_CODE_CHILD_SESSION` key present (value may be empty) | delegated, hidden | `parent_harness = "cc"`, `parent_harness_session_id = $CLAUDE_CODE_SESSION_ID`, when that value is non-empty |
 | `cc` | `CODEX_THREAD_ID` present and non-empty | delegated, hidden | `parent_harness = "codex"`, `parent_harness_session_id = $CODEX_THREAD_ID` |
+| any | `CCTOP_PARENT_HARNESS` and `CCTOP_PARENT_SESSION_ID` both non-empty, harness in the allowlist, pair not naming the session itself | delegated, hidden | `parent_harness = $CCTOP_PARENT_HARNESS`, `parent_harness_session_id = $CCTOP_PARENT_SESSION_ID` |
 | any | payload `is_subagent: true` | delegated | none, unless an environment rule also matched |
+
+The explicit pair is a fallback evaluated after the two native rules. It exists
+because same-harness delegation has no native marker: a `claude -p` launched by
+Claude overwrites `CLAUDE_CODE_SESSION_ID` with its own id, and a nested
+`codex exec` does the same with `CODEX_THREAD_ID`. `claude-delegate` and
+`codex-delegate` (`infrastructure/laptop/delegate/`) export the pair from the
+caller's environment before launching. Because the pair is inherited by every
+descendant, a delegated child that launches a bare `claude -p` (not through the
+wrapper) attributes that grandchild to the grandparent; the wrappers recompute
+the pair, so going through them is exact.
 
 - Claude Code adds `CLAUDE_CODE_CHILD_SESSION` to the child processes it launches.
   The key can have an empty value, so detection tests for key presence rather than
@@ -97,6 +108,9 @@ reapplying the patch:
    child marker alone still delegates but records no parent.
 10. Parent fields survive a later event that carries no environment evidence,
     including `SessionEnd`.
+12. An explicit `CCTOP_PARENT_HARNESS`/`CCTOP_PARENT_SESSION_ID` pair delegates a
+    same-harness child; it is ignored when incomplete, unknown, or self-naming,
+    and a native rule that also matches outranks it.
 11. Sticky-classification repair refuses a hidden `is_subagent` Codex record that
     carries parent fields, while a record without them is still repaired.
 
