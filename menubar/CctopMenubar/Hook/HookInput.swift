@@ -210,6 +210,32 @@ struct HookInput: Codable {
         return String(token.prefix(16))
     }
 
+    /// The launcher's identity as the harness process itself inherited it. The hook's own
+    /// environment cannot see this for same-harness delegation: a child `claude` re-exports
+    /// `CLAUDE_CODE_SESSION_ID` as its own id to everything it spawns, hooks included, and a
+    /// nested `codex exec` does the same with `CODEX_THREAD_ID`. The harness *process*, though,
+    /// still carries the values its launcher gave it, and the kernel will hand those over for
+    /// a same-user pid. A value equal to this session's own id is not a parent.
+    ///
+    /// This catches any bare `claude -p` or `codex exec` a session launches, wrapper or not
+    /// (2026-09-11: a lane writer launched with `env -u CLAUDE_CONFIG_DIR claude -p …` sat on
+    /// the Stream Deck as a top-level session).
+    func inheritedParentEvidence(harnessEnvironment: [String: String]?) -> DelegatedSessionEvidence? {
+        guard let env = harnessEnvironment else { return nil }
+        switch resolvedHarnessName {
+        case SessionData.ccSource:
+            guard env["CLAUDE_CODE_CHILD_SESSION"] != nil,
+                  let parentId = Self.nonEmpty(env["CLAUDE_CODE_SESSION_ID"]),
+                  parentId != sessionId else { return nil }
+            return DelegatedSessionEvidence(parentHarness: SessionData.ccSource, parentHarnessSessionId: parentId)
+        case SessionData.codexSource:
+            guard let parentId = Self.nonEmpty(env["CODEX_THREAD_ID"]), parentId != sessionId else { return nil }
+            return DelegatedSessionEvidence(parentHarness: SessionData.codexSource, parentHarnessSessionId: parentId)
+        default:
+            return nil
+        }
+    }
+
     /// Environment keys a launcher sets on purpose to name the parent it delegates on behalf
     /// of. Same-harness delegation has no native marker: a `claude -p` launched by Claude
     /// overwrites `CLAUDE_CODE_SESSION_ID` with its own id, and a nested `codex exec` does

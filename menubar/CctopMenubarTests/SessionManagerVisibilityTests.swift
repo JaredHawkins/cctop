@@ -3645,6 +3645,7 @@ private struct VisibilityHookProcessProber: ProcessProbing {
     func isAlive(pid: UInt32) -> Bool { true }
     func commandName(pid: UInt32) -> String? { nil }
     func controllingTTY() -> String? { nil }
+    func environment(pid: UInt32) -> [String: String]? { nil }
 }
 
 private struct VisibilityHookNameResolver: SessionNameResolving {

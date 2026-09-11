@@ -738,6 +738,32 @@ extension SessionData {
         return info
     }
 
+    /// Reads a process's launch environment from `KERN_PROCARGS2` (argv then environ, each
+    /// NUL-terminated, after a leading argc). Works for the user's own processes only, which
+    /// is exactly the set cctop tracks. Nil on any failure; never throws or partially parses.
+    static func processEnvironment(pid: UInt32) -> [String: String]? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
+        var size = 0
+        guard sysctl(&mib, UInt32(mib.count), nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else {
+            return nil
+        }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, UInt32(mib.count), &buffer, &size, nil, 0) == 0 else { return nil }
+        let argc = Int(buffer.withUnsafeBytes { $0.load(as: Int32.self) })
+        guard argc >= 0 else { return nil }
+        // Strings after the count: exec path, then argv (argc entries), then environ. Empty
+        // strings between the exec path and argv are alignment padding, not entries.
+        let fields = buffer[MemoryLayout<Int32>.size..<size].split(separator: 0, omittingEmptySubsequences: true)
+            .compactMap { String(bytes: $0, encoding: .utf8) }
+        guard fields.count > argc + 1 else { return nil }
+        var environment: [String: String] = [:]
+        for entry in fields[(argc + 1)...] {
+            guard let eq = entry.firstIndex(of: "=") else { continue }
+            environment[String(entry[..<eq])] = String(entry[entry.index(after: eq)...])
+        }
+        return environment
+    }
+
     static func processStartTime(pid: UInt32) -> TimeInterval? {
         guard let info = processInfo(pid: pid) else { return nil }
         return startTime(from: info)

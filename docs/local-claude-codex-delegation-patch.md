@@ -30,7 +30,18 @@ session that owns it.
 | `codex` | `CLAUDE_CODE_CHILD_SESSION` key present (value may be empty) | delegated, hidden | `parent_harness = "cc"`, `parent_harness_session_id = $CLAUDE_CODE_SESSION_ID`, when that value is non-empty |
 | `cc` | `CODEX_THREAD_ID` present and non-empty | delegated, hidden | `parent_harness = "codex"`, `parent_harness_session_id = $CODEX_THREAD_ID` |
 | any | `CCTOP_PARENT_HARNESS` and `CCTOP_PARENT_SESSION_ID` both non-empty, harness in the allowlist, pair not naming the session itself | delegated, hidden | `parent_harness = $CCTOP_PARENT_HARNESS`, `parent_harness_session_id = $CCTOP_PARENT_SESSION_ID` |
+| `cc` | none of the above matched, and the **harness process's own** environment (read via `KERN_PROCARGS2` for the captured pid) has `CLAUDE_CODE_CHILD_SESSION` plus a `CLAUDE_CODE_SESSION_ID` that is not this session's id | delegated, hidden | `parent_harness = "cc"`, `parent_harness_session_id` = that id |
+| `codex` | none of the above matched, and the harness process's own environment has a `CODEX_THREAD_ID` that is not this session's id | delegated, hidden | `parent_harness = "codex"`, `parent_harness_session_id` = that id |
 | any | payload `is_subagent: true` | delegated | none, unless an environment rule also matched |
+
+The process-environment rows exist because the hook's own environment cannot see
+same-harness delegation: a child `claude` re-exports `CLAUDE_CODE_SESSION_ID` as
+its own id to everything it spawns, hooks included. The harness process itself
+still carries what its launcher gave it, and the kernel hands that over for a
+same-user pid. This links any bare `claude -p` or nested `codex exec` a session
+launches, wrapper or not (2026-09-11: a lane writer launched with
+`env -u CLAUDE_CONFIG_DIR claude -p …` sat on the Stream Deck as a top-level
+session). One sysctl per hook event, and only when the cheap rules found nothing.
 
 The explicit pair is a fallback evaluated after the two native rules. It exists
 because same-harness delegation has no native marker: a `claude -p` launched by
@@ -108,6 +119,9 @@ reapplying the patch:
    child marker alone still delegates but records no parent.
 10. Parent fields survive a later event that carries no environment evidence,
     including `SessionEnd`.
+13. A `cc` hook whose harness process environment carries the child marker and a
+    foreign `CLAUDE_CODE_SESSION_ID` is hidden and linked to it; the session's own
+    id, a missing marker, or an unreadable environment leaves it visible.
 12. An explicit `CCTOP_PARENT_HARNESS`/`CCTOP_PARENT_SESSION_ID` pair delegates a
     same-harness child; it is ignored when incomplete, unknown, or self-naming,
     and a native rule that also matches outranks it.

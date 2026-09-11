@@ -395,6 +395,29 @@ final class HookInputTests: XCTestCase {
         )
     }
 
+    func testInheritedParentEvidenceReadsTheHarnessProcessEnvironment() throws {
+        let claude = try hookInput(harness: "cc")
+        XCTAssertEqual(
+            claude.inheritedParentEvidence(harnessEnvironment: [
+                "CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_SESSION_ID": "launcher"
+            ]),
+            HookInput.DelegatedSessionEvidence(parentHarness: "cc", parentHarnessSessionId: "launcher")
+        )
+        XCTAssertNil(claude.inheritedParentEvidence(harnessEnvironment: ["CLAUDE_CODE_SESSION_ID": "launcher"]), "marker required")
+        XCTAssertNil(claude.inheritedParentEvidence(harnessEnvironment: [
+            "CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_SESSION_ID": "s"
+        ]), "own id is not a parent")
+        XCTAssertNil(claude.inheritedParentEvidence(harnessEnvironment: nil))
+
+        let codex = try hookInput(harness: "codex")
+        XCTAssertEqual(
+            codex.inheritedParentEvidence(harnessEnvironment: ["CODEX_THREAD_ID": "outer-thread"]),
+            HookInput.DelegatedSessionEvidence(parentHarness: "codex", parentHarnessSessionId: "outer-thread")
+        )
+        XCTAssertNil(codex.inheritedParentEvidence(harnessEnvironment: ["CODEX_THREAD_ID": "s"]))
+        XCTAssertNil(codex.inheritedParentEvidence(harnessEnvironment: ["CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_SESSION_ID": "x"]))
+    }
+
     /// The login is read from the harness's own home variable, or an explicit override.
     func testAccountEvidenceIsScopedToTheHarnessOwnHome() throws {
         let claude = try hookInput(harness: "cc")

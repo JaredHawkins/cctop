@@ -11,6 +11,9 @@ protocol ProcessProbing {
     func isAlive(pid: UInt32) -> Bool
     func commandName(pid: UInt32) -> String?
     func controllingTTY() -> String?
+    /// The environment another same-user process was started with, or nil when the kernel
+    /// will not say (foreign user, exited, restricted binary).
+    func environment(pid: UInt32) -> [String: String]?
 }
 
 /// Production prober backed by getppid/sysctl/kill via the existing helpers.
@@ -20,6 +23,7 @@ struct LiveProcessProber: ProcessProbing {
     func isAlive(pid: UInt32) -> Bool { HookHandler.isPIDAlive(pid) }
     func commandName(pid: UInt32) -> String? { SessionData.processCommandName(pid: pid) }
     func controllingTTY() -> String? { HookHandler.findTTY() }
+    func environment(pid: UInt32) -> [String: String]? { SessionData.processEnvironment(pid: pid) }
 }
 
 // MARK: - Session Name Resolution

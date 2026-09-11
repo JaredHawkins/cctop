@@ -76,7 +76,7 @@ enum HookHandler {
                 data.workspaceFile = SessionData.findWorkspaceFile(in: input.cwd)
             }
             applySideEffects(event: event, data: &data, input: input, sessionsDir: sessionsDir, safeId: safeId)
-            if let evidence = input.delegatedSessionEvidence(environment: deps.environment()) {
+            if let evidence = resolveDelegationEvidence(input: input, pid: pid, deps: deps) {
                 data.isSubagentSession = true
                 applyParentHarnessEvidence(&data, evidence: evidence)
             }
@@ -552,6 +552,17 @@ extension HookHandler {
     /// Parent linkage is stamped only when the environment proves it. A later event without
     /// that evidence (Claude Code does not re-export the marker on every hook) must not
     /// erase an already-recorded parent.
+    /// Hook-environment rules first (exact when they fire, and free), then the harness
+    /// process's own inherited environment, which is one sysctl and only consulted when the
+    /// cheap rules found nothing.
+    private static func resolveDelegationEvidence(
+        input: HookInput, pid: UInt32?, deps: HookDependencies
+    ) -> HookInput.DelegatedSessionEvidence? {
+        if let evidence = input.delegatedSessionEvidence(environment: deps.environment()) { return evidence }
+        guard let pid else { return nil }
+        return input.inheritedParentEvidence(harnessEnvironment: deps.process.environment(pid: pid))
+    }
+
     private static func applyParentHarnessEvidence(
         _ data: inout SessionData, evidence: HookInput.DelegatedSessionEvidence
     ) {
@@ -628,7 +639,7 @@ extension HookHandler {
             if hasTrustedClaudeDesktopBundle(data, sourceOverride: input.resolvedHarnessName) {
                 data.disconnectedAt = data.disconnectedAt ?? endedAt
             }
-            if let evidence = input.delegatedSessionEvidence(environment: deps.environment()) {
+            if let evidence = resolveDelegationEvidence(input: input, pid: data.pid, deps: deps) {
                 data.isSubagentSession = true
                 data.hidden = true
                 applyParentHarnessEvidence(&data, evidence: evidence)

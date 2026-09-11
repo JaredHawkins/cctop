@@ -32,12 +32,15 @@ final class HookHandlerTests: XCTestCase {
         var alive: Bool = true
         var comm: String?
         var tty: String?
+        /// What `environment(pid:)` returns for the harness pid; nil = kernel would not say.
+        var harnessEnvironment: [String: String]?
 
         func parentPID() -> UInt32 { pid }
         func startTime(pid: UInt32) -> TimeInterval? { start }
         func isAlive(pid: UInt32) -> Bool { alive }
         func commandName(pid: UInt32) -> String? { comm }
         func controllingTTY() -> String? { tty }
+        func environment(pid: UInt32) -> [String: String]? { pid == self.pid ? harnessEnvironment : nil }
     }
 
     /// Name resolver that answers from fixed values (all nil by default), so tests
@@ -58,13 +61,16 @@ final class HookHandlerTests: XCTestCase {
         alive: Bool = true,
         env: [String: String] = [:],
         branch: String = "main",
-        names: any SessionNameResolving = StubNameResolver()
+        names: any SessionNameResolving = StubNameResolver(),
+        harnessEnvironment: [String: String]? = nil
     ) -> HookDependencies {
         HookDependencies(
             sessionsDir: { self.sessionsDir },
             environment: { env },
             currentBranch: { _ in branch },
-            process: FakeProcessProber(pid: pid, start: startTime, alive: alive),
+            process: FakeProcessProber(
+                pid: pid, start: startTime, alive: alive, harnessEnvironment: harnessEnvironment
+            ),
             names: names,
             logger: HookLogger(logsDir: logsDir)
         )
@@ -1644,6 +1650,51 @@ final class HookHandlerTests: XCTestCase {
         """, hookName: "UserPromptSubmit", deps: makeDeps(env: [:]))
         session = try loadSession()
         XCTAssertEqual(session.account, "klick")
+    }
+
+    /// A bare `claude -p` launched by a Claude session, outside any wrapper: the hook's own
+    /// environment names the child itself, but the child process still carries its launcher's
+    /// `CLAUDE_CODE_SESSION_ID`, and that is what hides and links it.
+    func testClaudeChildLaunchedWithoutTheWrapperIsLinkedFromItsProcessEnvironment() throws {
+        let sessionId = "bare-claude-child"
+        try handleHook("""
+        {"session_id":"\(sessionId)","cwd":"/tmp/p","hook_event_name":"SessionStart","harness_name":"cc"}
+        """, hookName: "SessionStart", deps: makeDeps(
+            env: ["CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_SESSION_ID": sessionId],
+            harnessEnvironment: ["CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_SESSION_ID": "launcher-uuid"]
+        ))
+        let session = try loadSession()
+        XCTAssertTrue(session.isSubagentSession)
+        XCTAssertTrue(session.hidden)
+        XCTAssertEqual(session.parentHarness, "cc")
+        XCTAssertEqual(session.parentHarnessSessionId, "launcher-uuid")
+    }
+
+    func testInteractiveClaudeSessionIsNotLinkedByItsOwnIdOrWithoutTheMarker() throws {
+        let sessionId = "own-claude"
+        // Marker present but the id is the session's own: the launcher walk found nothing new.
+        try handleHook("""
+        {"session_id":"\(sessionId)","cwd":"/tmp/p","hook_event_name":"SessionStart","harness_name":"cc"}
+        """, hookName: "SessionStart", deps: makeDeps(
+            harnessEnvironment: ["CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_SESSION_ID": sessionId]
+        ))
+        XCTAssertFalse(try loadSession().isSubagentSession)
+
+        // No marker at all: a user-started session that merely has a session id in its env.
+        try handleHook("""
+        {"session_id":"\(sessionId)","cwd":"/tmp/p","hook_event_name":"UserPromptSubmit","harness_name":"cc","prompt":"x"}
+        """, hookName: "UserPromptSubmit", deps: makeDeps(
+            harnessEnvironment: ["CLAUDE_CODE_SESSION_ID": "someone-else"]
+        ))
+        let session = try loadSession()
+        XCTAssertFalse(session.isSubagentSession)
+        XCTAssertNil(session.parentHarness)
+
+        // Kernel would not say: nothing changes.
+        try handleHook("""
+        {"session_id":"\(sessionId)","cwd":"/tmp/p","hook_event_name":"UserPromptSubmit","harness_name":"cc","prompt":"y"}
+        """, hookName: "UserPromptSubmit", deps: makeDeps(harnessEnvironment: nil))
+        XCTAssertFalse(try loadSession().isSubagentSession)
     }
 
     func testPersonalSessionWritesNoAccountField() throws {
